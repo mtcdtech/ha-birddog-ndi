@@ -1,0 +1,11 @@
+{
+  "domain": "birddog_ndi",
+  "name": "BirdDog Play NDI",
+  "codeowners": ["@mtcdtech"],
+  "config_flow": true,
+  "documentation": "https://github.com/mtcdtech/ha-birddog-ndi",
+  "issue_tracker": "https://github.com/mtcdtech/ha-birddog-ndi/issues",
+  "iot_class": "local_polling",
+  "version": "1.0.0",
+  "requirements": []
+}

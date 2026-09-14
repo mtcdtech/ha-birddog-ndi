@@ -1,0 +1,22 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to BirdDog PLAY NDI",
+        "description": "Enter the network details for your BirdDog PLAY NDI device.",
+        "data": {
+          "host": "Host / IP Address",
+          "port": "Port",
+          "name": "Device Name"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect to the BirdDog device. Please verify the IP address and port.",
+      "unknown": "An unexpected error occurred."
+    },
+    "abort": {
+      "already_configured": "This BirdDog device is already configured."
+    }
+  }
+}
