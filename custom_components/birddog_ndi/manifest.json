@@ -6,6 +6,22 @@
   "documentation": "https://github.com/mtcdtech/ha-birddog-ndi",
   "issue_tracker": "https://github.com/mtcdtech/ha-birddog-ndi/issues",
   "iot_class": "local_polling",
-  "version": "1.0.0",
-  "requirements": []
+  "version": "1.1.0",
+  "requirements": [],
+  "zeroconf": [
+    {
+      "type": "_http._tcp.local.",
+      "name": "birddog*"
+    },
+    {
+      "type": "_http._tcp.local.",
+      "name": "*play*"
+    },
+    {
+      "type": "_ndi._tcp.local."
+    },
+    {
+      "type": "_birddog._tcp.local."
+    }
+  ]
 }

@@ -1,30 +1,24 @@
 # Current State: ha-birddog-ndi
 
 ## Project Status
-- **Status**: Scaffold initialized with complete API client, DataUpdateCoordinator, Config Flow, Sensor, Select, and Switch platforms.
+- **Status**: Release v1.1.0 ready and validated.
 - **GitHub Repository**: `mtcdtech/ha-birddog-ndi`
 - **Domain**: `birddog_ndi`
-- **Version**: 1.0.0
+- **Version**: 1.1.0
 
-## Implemented Components
-1. **API Client (`birddog_api.py`)**:
-   - Asynchronous client using `aiohttp`.
-   - Polling endpoints: `/about`, `/version`, `/connectTo` (current source), `/analogueaudiooutputgain` (or audio mute).
-   - Control endpoints: POST `/connectTo` with `sourceName` to switch NDI stream, audio mute/unmute.
-2. **Coordinator (`coordinator.py`)**:
-   - Polling device every 15 seconds.
-   - Robust offline detection and automatic recovery.
-3. **Config Flow (`config_flow.py`)**:
-   - UI configuration asking for Host/IP, Port (default 8080), and Device Name.
-   - Connection test during setup to prevent invalid configurations.
-4. **Entities**:
-   - Sensors: Online Status, Connected NDI Source, Resolution/Format, IP Address, Firmware Version.
-   - Select: Active NDI Source selector (supports discovered sources and manual stream entry).
-   - Switch: Audio Mute toggle.
-5. **HACS & HA Compliance**:
-   - `hacs.json` configured for HACS custom repository distribution.
-   - `manifest.json` compliant with Home Assistant 2024+ specifications (`iot_class: local_polling`).
-
-## Known Assumptions & Environment
-- Target hardware: BirdDog PLAY (NDI decoder) communicating over local HTTP REST API (port 8080 by default, fallback to port 80).
-- Compatible with any Home Assistant installation (OS, Supervised, Container, Core).
+## Features in v1.1.0
+1. **Zeroconf Auto-Discovery**:
+   - Matches `_http._tcp.local.`, `_ndi._tcp.local.`, and `_birddog._tcp.local.`.
+   - Native discovery flow in HA with password prompt.
+2. **BirdUI Authentication**:
+   - `birddog_api.py` manages session cookies across requests.
+   - Posts to `/login` with `auth_password`.
+   - Auto-relogin on 401/403 or redirect to login.
+3. **Options Flow**:
+   - Users can update password and polling interval dynamically in HA UI.
+4. **Platforms & Entities**:
+   - **Sensors**: Status, Current NDI Source, Source IP, Source Port, Failover Source, Video Format, Bitrate, Transport Protocol, Screen Saver Mode, IP Address, MAC Address, Firmware Version.
+   - **Binary Sensor**: Active Decoding state.
+   - **Selects**: Active Video Source, Failover Source, Screen Saver Mode, Transport Protocol.
+   - **Switches**: Audio Mute, Tally Light.
+   - **Buttons**: Reboot Device, Restart Video Engine, Refresh NDI Sources.

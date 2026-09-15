@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import Any
 
 from homeassistant.components.sensor import (
-    SensorDeviceClass,
     SensorEntity,
     SensorEntityDescription,
 )
@@ -30,9 +29,49 @@ SENSOR_TYPES: tuple[SensorEntityDescription, ...] = (
         icon="mdi:video-input-antenna",
     ),
     SensorEntityDescription(
+        key="source_ip",
+        name="Source IP",
+        icon="mdi:ip-network-outline",
+    ),
+    SensorEntityDescription(
+        key="source_port",
+        name="Source Port",
+        icon="mdi:numeric",
+    ),
+    SensorEntityDescription(
+        key="failover_source",
+        name="Failover NDI Source",
+        icon="mdi:video-switch-outline",
+    ),
+    SensorEntityDescription(
+        key="video_format",
+        name="Video Format",
+        icon="mdi:television-box",
+    ),
+    SensorEntityDescription(
+        key="bitrate",
+        name="Decode Bitrate",
+        icon="mdi:speedometer",
+    ),
+    SensorEntityDescription(
+        key="transport",
+        name="Transport Protocol",
+        icon="mdi:transit-connection-variant",
+    ),
+    SensorEntityDescription(
+        key="screensaver",
+        name="Screen Saver Mode",
+        icon="mdi:image-filter-frames",
+    ),
+    SensorEntityDescription(
         key="ip_address",
         name="IP Address",
         icon="mdi:ip-network",
+    ),
+    SensorEntityDescription(
+        key="mac_address",
+        name="MAC Address",
+        icon="mdi:network",
     ),
     SensorEntityDescription(
         key="firmware",
@@ -97,8 +136,24 @@ class BirdDogSensor(CoordinatorEntity[BirdDogDataUpdateCoordinator], SensorEntit
             return "online" if self.coordinator.data.get("online") else "offline"
         if key == "current_source":
             return self.coordinator.data.get("current_source")
+        if key == "source_ip":
+            return self.coordinator.data.get("source_ip")
+        if key == "source_port":
+            return self.coordinator.data.get("source_port")
+        if key == "failover_source":
+            return self.coordinator.data.get("failover_source")
+        if key == "video_format":
+            return self.coordinator.data.get("video_format")
+        if key == "bitrate":
+            return self.coordinator.data.get("bitrate")
+        if key == "transport":
+            return self.coordinator.data.get("transport")
+        if key == "screensaver":
+            return self.coordinator.data.get("screensaver")
         if key == "ip_address":
             return self.coordinator.data.get("host")
+        if key == "mac_address":
+            return self.coordinator.data.get("mac_address")
         if key == "firmware":
             return self.coordinator.data.get("firmware")
         return None

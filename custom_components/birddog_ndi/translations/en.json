@@ -3,20 +3,41 @@
     "step": {
       "user": {
         "title": "Connect to BirdDog PLAY NDI",
-        "description": "Enter the network details for your BirdDog PLAY NDI device.",
+        "description": "Enter the network details and password for your BirdDog PLAY device.",
         "data": {
           "host": "Host / IP Address",
           "port": "Port",
+          "password": "Password",
           "name": "Device Name"
+        }
+      },
+      "zeroconf_confirm": {
+        "title": "Discovered BirdDog PLAY",
+        "description": "Found {name} at {host}. Enter the device password to connect (default is 'birddog').",
+        "data": {
+          "password": "Password"
         }
       }
     },
     "error": {
       "cannot_connect": "Failed to connect to the BirdDog device. Please verify the IP address and port.",
+      "invalid_auth": "Authentication failed. Please verify the device password.",
       "unknown": "An unexpected error occurred."
     },
     "abort": {
       "already_configured": "This BirdDog device is already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "BirdDog Device Options",
+        "description": "Update configuration and polling options for this BirdDog device.",
+        "data": {
+          "password": "Password",
+          "scan_interval": "Update Interval (seconds)"
+        }
+      }
     }
   }
 }
