@@ -1,4 +1,4 @@
-"""Config flow for BirdDog Play NDI integration."""
+"""Config flow for BirdDog NDI integration (Play, Play Pro, Mini, Flex, Studio)."""
 
 from __future__ import annotations
 
@@ -42,7 +42,7 @@ def get_user_data_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
 
 
 class BirdDogConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    """Handle a config flow for BirdDog Play NDI."""
+    """Handle a config flow for BirdDog NDI devices."""
 
     VERSION = 1
 
@@ -106,8 +106,9 @@ class BirdDogConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         host = str(discovery_info.host)
         port = discovery_info.port or DEFAULT_PORT
 
-        # Strictly ensure this is an actual BirdDog device, not an arbitrary NDI stream
-        if not ("birddog" in name or "birddog" in hostname or "play" in name or "play" in hostname):
+        # Validate that this is a recognized BirdDog hardware family
+        valid_keywords = ("birddog", "play", "mini", "flex", "studio")
+        if not any(k in name or k in hostname for k in valid_keywords):
             return self.async_abort(reason="not_birddog")
 
         await self.async_set_unique_id(f"{host}:{port}")
@@ -115,7 +116,7 @@ class BirdDogConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         self._discovered_host = host
         self._discovered_port = port
-        raw_name = discovery_info.name or "BirdDog Play"
+        raw_name = discovery_info.name or "BirdDog Device"
         self._discovered_name = raw_name.split(".")[0].replace("_", " ").title()
 
         self.context["title_placeholders"] = {
@@ -127,7 +128,7 @@ class BirdDogConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_zeroconf_confirm(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
-        """Confirm discovery and strictly validate device password before adding."""
+        """Confirm discovery and validate connection."""
         errors: dict[str, str] = {}
 
         if user_input is not None:
@@ -184,7 +185,7 @@ class BirdDogConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
 
 class BirdDogOptionsFlowHandler(config_entries.OptionsFlow):
-    """Handle BirdDog Play options changes."""
+    """Handle BirdDog options changes."""
 
     def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
         """Initialize options flow."""

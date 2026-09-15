@@ -2,8 +2,8 @@
   "config": {
     "step": {
       "user": {
-        "title": "Connect to BirdDog PLAY NDI",
-        "description": "Enter the network details and password for your BirdDog PLAY device.",
+        "title": "Connect to BirdDog NDI Device",
+        "description": "Enter the network details and password for your BirdDog device (Play, Play Pro, Mini, Flex, Studio).",
         "data": {
           "host": "Host / IP Address",
           "port": "Port",
@@ -12,8 +12,8 @@
         }
       },
       "zeroconf_confirm": {
-        "title": "Discovered BirdDog PLAY",
-        "description": "Found {name} at {host}. Enter the device password to connect (default is 'birddog').",
+        "title": "Discovered BirdDog Device",
+        "description": "Found {name} at {host}. Enter the device password if required (default is 'birddog').",
         "data": {
           "password": "Password"
         }
@@ -26,7 +26,7 @@
     },
     "abort": {
       "already_configured": "This BirdDog device is already configured.",
-      "not_birddog": "The discovered device is not a BirdDog PLAY decoder."
+      "not_birddog": "The discovered device is not a recognized BirdDog device."
     }
   },
   "options": {

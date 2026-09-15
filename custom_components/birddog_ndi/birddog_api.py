@@ -1,8 +1,9 @@
-"""Asynchronous client for interacting with BirdDog PLAY NDI devices."""
+"""Asynchronous client for interacting with BirdDog NDI devices (Play, Play Pro, Mini, Flex, Studio)."""
 
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import logging
 from typing import Any
@@ -18,6 +19,7 @@ from .const import (
     ENDPOINT_CONNECT_TO,
     ENDPOINT_LIST,
     ENDPOINT_LOGIN,
+    ENDPOINT_OPERATION_MODE,
     ENDPOINT_REBOOT,
     ENDPOINT_REFRESH,
     ENDPOINT_RESTART_VIDEO,
@@ -40,7 +42,7 @@ class BirdDogAuthError(BirdDogAPIError):
 
 
 class BirdDogDevice:
-    """Client representation of a BirdDog PLAY NDI device."""
+    """Client representation of a BirdDog NDI device (Play, Mini, Flex, etc.)."""
 
     def __init__(
         self,
@@ -57,6 +59,7 @@ class BirdDogDevice:
         self.timeout = aiohttp.ClientTimeout(total=timeout)
         self._session = session
         self._own_session = False
+        self._auth_required: bool | None = None
         self._authenticated = False
 
     @property
@@ -80,6 +83,48 @@ class BirdDogDevice:
         if self._own_session and self._session and not self._session.closed:
             await self._session.close()
 
+    async def check_auth_required(self) -> bool:
+        """Determine adaptively if the device REST API requires authentication."""
+        session = await self._get_session()
+        probe_endpoints = [ENDPOINT_ABOUT, ENDPOINT_VERSION, ENDPOINT_OPERATION_MODE, ENDPOINT_CONNECT_TO]
+
+        for ep in probe_endpoints:
+            url = f"{self.base_url}{ep}"
+            try:
+                async with session.get(url, timeout=self.timeout, allow_redirects=True) as resp:
+                    if resp.status in (401, 403) or (
+                        resp.history and any("/login" in str(r.url) for r in resp.history)
+                    ):
+                        self._auth_required = True
+                        return True
+
+                    text = await resp.text()
+                    # Check if returned login HTML form
+                    lower_text = text.lower()
+                    if "<form" in lower_text and ("auth_password" in lower_text or 'type="password"' in lower_text):
+                        self._auth_required = True
+                        return True
+
+                    # If valid JSON or non-empty non-HTML text returned, API is open (Mini / Flex)
+                    if resp.status == 200:
+                        try:
+                            json.loads(text)
+                            self._auth_required = False
+                            self._authenticated = True
+                            _LOGGER.debug("BirdDog at %s has open REST API (auth not required)", self.host)
+                            return False
+                        except Exception:
+                            if not lower_text.startswith("<!doctype") and not lower_text.startswith("<html"):
+                                self._auth_required = False
+                                self._authenticated = True
+                                return False
+            except (aiohttp.ClientError, asyncio.TimeoutError):
+                continue
+
+        # Default to requiring auth if cannot conclusively determine
+        self._auth_required = bool(self.password)
+        return self._auth_required
+
     async def login(self) -> bool:
         """Authenticate with the BirdDog device via /login on port 80 or 8080."""
         if not self.password:
@@ -89,7 +134,7 @@ class BirdDogDevice:
         session = await self._get_session()
         payload = {"auth_password": self.password}
 
-        # Try port 80 (BirdUI web interface) first, then the configured port
+        # Try port 80 (BirdUI standard web port), then the configured port
         ports_to_try = [80]
         if self.port not in ports_to_try:
             ports_to_try.append(self.port)
@@ -111,7 +156,7 @@ class BirdDogDevice:
                     text = await resp.text()
                     lower_text = text.lower()
 
-                    # Check for explicit failure messages
+                    # Check for explicit failure markers
                     if (
                         "invalid password" in lower_text
                         or "incorrect password" in lower_text
@@ -122,9 +167,9 @@ class BirdDogDevice:
                         self._authenticated = False
                         return False
 
-                    # If the response still contains the login password form, login failed
+                    # If the response still contains the login password form, login was not successful
                     if "<form" in lower_text and ("auth_password" in lower_text or 'type="password"' in lower_text):
-                        _LOGGER.warning("BirdDog at %s:%s re-rendered login form (password rejected)", self.host, port)
+                        _LOGGER.warning("BirdDog at %s:%s re-rendered login form", self.host, port)
                         self._authenticated = False
                         return False
 
@@ -145,13 +190,19 @@ class BirdDogDevice:
         params: dict[str, Any] | None = None,
         retry_auth: bool = True,
     ) -> Any:
-        """Execute an async HTTP request with auto-relogin handling."""
+        """Execute an async HTTP request with adaptive authentication handling."""
         session = await self._get_session()
         url = f"{self.base_url}{endpoint}"
 
         headers = {
             "Accept": "application/json, text/plain, */*",
         }
+
+        # If HTTP Basic Auth header needed
+        if self.password and self._auth_required:
+            auth_str = f"admin:{self.password}"
+            b64_auth = base64.b64encode(auth_str.encode()).decode()
+            headers["Authorization"] = f"Basic {b64_auth}"
 
         try:
             async with session.request(
@@ -167,6 +218,7 @@ class BirdDogDevice:
                 if response.status in (401, 403) or (
                     response.history and any("/login" in str(r.url) for r in response.history)
                 ):
+                    self._auth_required = True
                     if retry_auth and self.password:
                         _LOGGER.debug("Authentication required for %s, logging in...", endpoint)
                         auth_ok = await self.login()
@@ -192,6 +244,7 @@ class BirdDogDevice:
                     return await response.json()
                 text = await response.text()
                 if "<form" in text and ("auth_password" in text or "login" in text):
+                    self._auth_required = True
                     if retry_auth and self.password:
                         auth_ok = await self.login()
                         if not auth_ok:
@@ -215,19 +268,26 @@ class BirdDogDevice:
             ) from err
 
     async def test_connection(self) -> bool:
-        """Test if device is reachable and credentials are valid before setup."""
-        if self.password:
+        """Adaptively test if device is reachable and valid before adding."""
+        # 1. Adaptively check if authentication is needed
+        auth_needed = await self.check_auth_required()
+
+        # 2. If authentication is strictly required, validate the password
+        if auth_needed and self.password:
             auth_ok = await self.login()
             if not auth_ok:
                 raise BirdDogAuthError("Invalid password for BirdDog device")
 
-        # Now test connectivity by fetching device info or source
+        # 3. Test retrieving device telemetry
         try:
             info = await self.get_device_info()
             if info:
                 return True
             source = await self.get_current_source()
             if source:
+                return True
+            op_mode = await self.get_operation_mode()
+            if op_mode:
                 return True
             # Fallback probe
             session = await self._get_session()
@@ -265,6 +325,18 @@ class BirdDogDevice:
         except BirdDogAPIError as err:
             _LOGGER.debug("GET %s failed: %s", ENDPOINT_CONNECT_TO, err)
         return {}
+
+    async def get_operation_mode(self) -> str | None:
+        """Fetch operation mode (Decode vs Encode) for converters like Mini and Flex."""
+        try:
+            data = await self._request("GET", ENDPOINT_OPERATION_MODE)
+            if isinstance(data, dict):
+                return data.get("operationmode") or data.get("mode") or data.get("OperationMode")
+            if isinstance(data, str) and data and not data.startswith("<"):
+                return data
+        except BirdDogAPIError as err:
+            _LOGGER.debug("GET %s failed: %s", ENDPOINT_OPERATION_MODE, err)
+        return None
 
     async def get_available_sources(self) -> list[str]:
         """Fetch list of discovered NDI sources if supported."""
@@ -319,7 +391,7 @@ class BirdDogDevice:
         return False
 
     async def reboot(self) -> bool:
-        """Reboot the BirdDog PLAY device."""
+        """Reboot the BirdDog device."""
         _LOGGER.warning("Rebooting BirdDog device at %s", self.host)
         try:
             await self._request("POST", ENDPOINT_REBOOT)
@@ -329,7 +401,7 @@ class BirdDogDevice:
             return False
 
     async def restart_video(self) -> bool:
-        """Restart video decoding subsystem."""
+        """Restart video decoding/encoding subsystem."""
         _LOGGER.info("Restarting video engine on BirdDog %s", self.host)
         for ep in (ENDPOINT_RESTART_VIDEO, "/restart"):
             try:
@@ -349,11 +421,12 @@ class BirdDogDevice:
 
     async def fetch_all_data(self) -> dict[str, Any]:
         """Fetch all device states in a single polling cycle."""
-        if not self._authenticated and self.password:
+        if self._auth_required and not self._authenticated and self.password:
             await self.login()
 
         info = await self.get_device_info()
         source_data = await self.get_current_source()
+        op_mode = await self.get_operation_mode()
         mute_state = await self.get_audio_mute()
 
         # Resilient source resolution
@@ -391,10 +464,27 @@ class BirdDogDevice:
         netmask = info.get("Netmask") or "Unknown"
         gateway = info.get("GateWay") or info.get("Gateway") or "Unknown"
 
-        # Model and firmware
-        model = info.get("Model") or info.get("model") or "PLAY"
+        # Model and firmware resolution (detects MINI, FLEX, PLAY, PLAY PRO, STUDIO)
+        raw_model = str(info.get("Model") or info.get("model") or "").upper()
+        device_name = info.get("DeviceName") or info.get("HostName") or info.get("name") or "BirdDog Device"
+
+        if "MINI" in raw_model or "MINI" in device_name.upper():
+            model = "MINI"
+        elif "FLEX" in raw_model or "FLEX" in device_name.upper():
+            model = "FLEX 4K"
+        elif "PLAY PRO" in raw_model or "PLAY PRO" in device_name.upper():
+            model = "PLAY PRO"
+        elif "PLAY" in raw_model or "PLAY" in device_name.upper():
+            model = "PLAY"
+        elif "STUDIO" in raw_model or "STUDIO" in device_name.upper():
+            model = "STUDIO"
+        else:
+            model = info.get("Model") or info.get("model") or "BirdDog Device"
+
         firmware = info.get("Version") or info.get("firmware") or info.get("version") or "Unknown"
-        device_name = info.get("DeviceName") or info.get("HostName") or info.get("name") or "BirdDog Play"
+
+        # Operating mode (Decode vs Encode)
+        final_op_mode = op_mode or ("Decode" if "PLAY" in model else "Encode")
 
         # Decoding active state
         is_decoding = current_source not in ("No Source", "Unknown", "None", "")
@@ -409,6 +499,7 @@ class BirdDogDevice:
             "serial": info.get("Serial") or info.get("serialNumber") or f"bd_{self.host}",
             "mac_address": mac_address,
             "network_mode": network_mode,
+            "operation_mode": final_op_mode,
             "ip_address": ip_address,
             "netmask": netmask,
             "gateway": gateway,

@@ -1,4 +1,4 @@
-"""Sensor platform for BirdDog Play NDI."""
+"""Sensor platform for BirdDog NDI (Play, Play Pro, Mini, Flex, Studio)."""
 
 from __future__ import annotations
 
@@ -27,6 +27,11 @@ SENSOR_TYPES: tuple[SensorEntityDescription, ...] = (
         key="current_source",
         name="Current NDI Source",
         icon="mdi:video-input-antenna",
+    ),
+    SensorEntityDescription(
+        key="operation_mode",
+        name="Operation Mode",
+        icon="mdi:swap-horizontal",
     ),
     SensorEntityDescription(
         key="ip_address",
@@ -113,6 +118,8 @@ class BirdDogSensor(CoordinatorEntity[BirdDogDataUpdateCoordinator], SensorEntit
             return "Online" if data.get("online") else "Offline"
         if key == "current_source":
             return data.get("current_source")
+        if key == "operation_mode":
+            return data.get("operation_mode")
         if key == "ip_address":
             return data.get("ip_address") or data.get("host")
         if key == "mac_address":
@@ -127,7 +134,7 @@ class BirdDogSensor(CoordinatorEntity[BirdDogDataUpdateCoordinator], SensorEntit
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        """Return device attributes for deeper diagnostics without creating empty entities."""
+        """Return device attributes for deeper diagnostics."""
         if not self.coordinator.data:
             return {}
 
