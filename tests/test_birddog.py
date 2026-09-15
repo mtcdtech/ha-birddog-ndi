@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 # Mock homeassistant modules so tests run in lightweight environments
 for mod in [
+    "voluptuous",
     "homeassistant",
     "homeassistant.config_entries",
     "homeassistant.const",
@@ -26,6 +27,37 @@ for mod in [
     "homeassistant.components.button",
 ]:
     sys.modules.setdefault(mod, MagicMock())
+
+class MockConfigFlow:
+    """Mock base class for ConfigFlow."""
+    def __init_subclass__(cls, **kwargs):
+        pass
+    def __init__(self):
+        self.context = {}
+        self.hass = MagicMock()
+        self.unique_id = None
+    def async_abort(self, *, reason):
+        return {"type": "abort", "reason": reason}
+    async def async_set_unique_id(self, unique_id):
+        self.unique_id = unique_id
+    def _abort_if_unique_id_configured(self, updates=None):
+        pass
+    def _async_current_entries(self):
+        return []
+    async def async_step_zeroconf_confirm(self, user_input=None):
+        return {"type": "form", "step_id": "zeroconf_confirm"}
+    def async_create_entry(self, *, title, data):
+        return {"type": "create_entry", "title": title, "data": data}
+    def async_show_form(self, **kwargs):
+        return {"type": "form"}
+
+sys.modules["homeassistant.const"].CONF_HOST = "host"
+sys.modules["homeassistant.const"].CONF_PORT = "port"
+sys.modules["homeassistant.const"].CONF_NAME = "name"
+sys.modules["homeassistant.const"].CONF_PASSWORD = "password"
+sys.modules["homeassistant"].config_entries.ConfigFlow = MockConfigFlow
+sys.modules["homeassistant.config_entries"].ConfigFlow = MockConfigFlow
+from custom_components.birddog_ndi.config_flow import BirdDogConfigFlow
 
 from custom_components.birddog_ndi.birddog_api import (
     BirdDogAPIError,
@@ -133,6 +165,80 @@ class TestBirdDogDevice(unittest.IsolatedAsyncioTestCase):
 
             self.assertTrue(await device.restart_video())
             self.assertTrue(await device.refresh_sources())
+
+
+class TestBirdDogConfigFlow(unittest.IsolatedAsyncioTestCase):
+    """Test suite for BirdDogConfigFlow de-duplication and discovery filtering."""
+
+    def setUp(self):
+        """Set up mocked config flow instance."""
+        self.flow = BirdDogConfigFlow()
+
+    async def test_zeroconf_aborts_when_already_configured_by_host(self):
+        """Test zeroconf aborts immediately if host IP is already in configured entries."""
+        existing_entry = MagicMock()
+        existing_entry.data = {"host": "192.168.1.50"}
+        existing_entry.unique_id = "192.168.1.50:8080"
+        self.flow._async_current_entries = MagicMock(return_value=[existing_entry])
+
+        discovery_info = MagicMock()
+        discovery_info.name = "birddog-play-4a2b._http._tcp.local."
+        discovery_info.hostname = "birddog-play.local."
+        discovery_info.host = "192.168.1.50"
+        discovery_info.port = 80
+
+        result = await self.flow.async_step_zeroconf(discovery_info)
+        self.assertEqual(result["type"], "abort")
+        self.assertEqual(result["reason"], "already_configured")
+
+    async def test_zeroconf_aborts_when_already_configured_by_legacy_unique_id(self):
+        """Test zeroconf aborts if legacy unique_id (host:8080) matches."""
+        existing_entry = MagicMock()
+        existing_entry.data = {}
+        existing_entry.unique_id = "192.168.1.75:8080"
+        self.flow._async_current_entries = MagicMock(return_value=[existing_entry])
+
+        discovery_info = MagicMock()
+        discovery_info.name = "birddog-mini._http._tcp.local."
+        discovery_info.hostname = "birddog-mini.local."
+        discovery_info.host = "192.168.1.75"
+        discovery_info.port = 80
+
+        result = await self.flow.async_step_zeroconf(discovery_info)
+        self.assertEqual(result["type"], "abort")
+        self.assertEqual(result["reason"], "already_configured")
+
+    async def test_zeroconf_aborts_when_not_birddog(self):
+        """Test non-birddog mDNS services are ignored."""
+        self.flow._async_current_entries = MagicMock(return_value=[])
+
+        discovery_info = MagicMock()
+        discovery_info.name = "apple-tv._http._tcp.local."
+        discovery_info.hostname = "appletv.local."
+        discovery_info.host = "192.168.1.99"
+        discovery_info.port = 80
+
+        result = await self.flow.async_step_zeroconf(discovery_info)
+        self.assertEqual(result["type"], "abort")
+        self.assertEqual(result["reason"], "not_birddog")
+
+    async def test_user_step_aborts_when_already_configured(self):
+        """Test manual step aborts if host is already configured."""
+        existing_entry = MagicMock()
+        existing_entry.data = {"host": "192.168.1.50"}
+        existing_entry.unique_id = "192.168.1.50"
+        self.flow._async_current_entries = MagicMock(return_value=[existing_entry])
+
+        user_input = {
+            "host": "192.168.1.50",
+            "port": 8080,
+            "password": "birddog",
+            "name": "BirdDog Play",
+        }
+
+        result = await self.flow.async_step_user(user_input)
+        self.assertEqual(result["type"], "abort")
+        self.assertEqual(result["reason"], "already_configured")
 
 
 if __name__ == "__main__":

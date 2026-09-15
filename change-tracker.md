@@ -1,5 +1,22 @@
 # Change Tracker: ha-birddog-ndi
 
+## [2026-09-15] v1.3.1 - Fix Duplicate Discovery Prompting and Integrate Official Branding Icon
+- **Goal**: Prevent Home Assistant from re-discovering and repeatedly prompting to add BirdDog devices that are already configured, and integrate official BirdDog green icon branding.
+- **Root Cause of Duplicate Discovery**:
+  - Zeroconf mDNS broadcasts `_http._tcp.local.` on port `80`.
+  - Manual configuration (or default API setup) uses port `8080`.
+  - Previously, `config_flow.py` set `unique_id` to `f"{host}:{port}"`. Because `192.168.1.50:80` != `192.168.1.50:8080`, Home Assistant did not recognize the device was already added.
+- **Changes Implemented**:
+  - `config_flow.py`: Normalized `unique_id` to `host` (IP address) across both manual and Zeroconf flows.
+  - Added comprehensive de-duplication: iterates over `self._async_current_entries()` checking both `entry.data[CONF_HOST] == host` and legacy unique IDs (`{host}:80`, `{host}:8080`), immediately aborting with `already_configured`.
+  - Also added de-duplication check in `async_step_zeroconf_confirm`.
+  - Added official BirdDog green icon: `icon.png` and `logo.png` in repository root, `custom_components/birddog_ndi/icon.png`, and updated `README.md` header.
+  - Added 4 new unit tests in `tests/test_birddog.py` (total 13/13 passing).
+- **Validation**:
+  - Python byte compilation clean.
+  - JSON schema clean.
+  - 13/13 unit tests passed (0.017s).
+
 ## [2026-09-14] v1.3.0 - Multi-Device Hardware Support (Mini, Flex, Play Pro, Studio) & Adaptive Auth
 - **Goal**: Expand support to BirdDog Mini, Flex 4K, Play Pro, and Studio, and fix authentication failure on the BirdDog Mini.
 - **Root Cause on Mini**:

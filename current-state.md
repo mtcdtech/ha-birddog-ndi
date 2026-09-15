@@ -1,10 +1,17 @@
 # Current State: ha-birddog-ndi
 
 ## Project Status
-- **Status**: Release v1.3.0 ready, tested, and validated.
+- **Status**: Release v1.3.1 ready, tested, and validated.
 - **GitHub Repository**: `mtcdtech/ha-birddog-ndi`
 - **Domain**: `birddog_ndi`
-- **Version**: 1.3.0
+- **Version**: 1.3.1
+
+## Features in v1.3.1
+1. **Duplicate Discovery Fix**:
+   - Resolved Zeroconf discovery prompting to configure BirdDog devices that are already added.
+   - Normalized `unique_id` to `host` and added active entry host checking (`entry.data[CONF_HOST] == host` and legacy unique_id matching).
+2. **Official Branding Icon**:
+   - Integrated custom high-resolution BirdDog green branding icon across repository root (`icon.png`, `logo.png`), component directory, and README header.
 
 ## Features in v1.3.0
 1. **Multi-Device Hardware Support**:

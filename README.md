@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="icon.png" alt="BirdDog NDI Logo" width="160" height="160">
+</p>
+
 # BirdDog NDI - Home Assistant Integration
 
 [![HACS Custom](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://hacs.xyz)
@@ -8,6 +12,13 @@ A custom Home Assistant integration to monitor and control **BirdDog NDI** devic
 - **BirdDog MINI** (HDMI $\leftrightarrow$ NDI Encoder/Decoder)
 - **BirdDog FLEX 4K** (Flex 4K IN, Flex 4K OUT, Flex 4K Backpack)
 - **BirdDog STUDIO**
+
+---
+
+## What's New in v1.3.1
+
+- 🚫 **Duplicate Discovery Fixed**: Resolved Zeroconf mDNS re-discovering and prompting to configure BirdDog devices that were already added (fixed port 80/8080 unique_id discrepancy and added active host de-duplication).
+- 🎨 **Official Component Icon**: Integrated custom high-resolution BirdDog green branding icon across HACS and repository metadata.
 
 ---
 

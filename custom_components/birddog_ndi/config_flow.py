@@ -64,7 +64,15 @@ class BirdDogConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             password = user_input.get(CONF_PASSWORD, DEFAULT_PASSWORD).strip()
             name = user_input.get(CONF_NAME, DEFAULT_NAME).strip()
 
-            await self.async_set_unique_id(f"{host}:{port}")
+            # Abort if device is already configured in any existing entry
+            for entry in self._async_current_entries():
+                if (
+                    entry.data.get(CONF_HOST) == host
+                    or entry.unique_id in (host, f"{host}:{port}", f"{host}:80", f"{host}:8080")
+                ):
+                    return self.async_abort(reason="already_configured")
+
+            await self.async_set_unique_id(host)
             self._abort_if_unique_id_configured()
 
             session = async_get_clientsession(self.hass)
@@ -111,7 +119,15 @@ class BirdDogConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if not any(k in name or k in hostname for k in valid_keywords):
             return self.async_abort(reason="not_birddog")
 
-        await self.async_set_unique_id(f"{host}:{port}")
+        # Abort if device is already configured in any existing entry (matches IP, hostname, or legacy unique_id)
+        for entry in self._async_current_entries():
+            if (
+                entry.data.get(CONF_HOST) == host
+                or entry.unique_id in (host, f"{host}:{port}", f"{host}:80", f"{host}:8080")
+            ):
+                return self.async_abort(reason="already_configured")
+
+        await self.async_set_unique_id(host)
         self._abort_if_unique_id_configured()
 
         self._discovered_host = host
@@ -132,6 +148,10 @@ class BirdDogConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
 
         if user_input is not None:
+            for entry in self._async_current_entries():
+                if entry.data.get(CONF_HOST) == self._discovered_host:
+                    return self.async_abort(reason="already_configured")
+
             password = user_input.get(CONF_PASSWORD, DEFAULT_PASSWORD).strip()
             session = async_get_clientsession(self.hass)
             device = BirdDogDevice(
