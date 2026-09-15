@@ -71,21 +71,18 @@ class BirdDogConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             device = BirdDogDevice(host=host, port=port, password=password, session=session)
 
             try:
-                is_connected = await device.test_connection()
-                if not is_connected:
-                    errors["base"] = "cannot_connect"
-                else:
-                    info = await device.get_device_info()
-                    title = info.get("DeviceName") or name
-                    return self.async_create_entry(
-                        title=title,
-                        data={
-                            CONF_HOST: host,
-                            CONF_PORT: port,
-                            CONF_PASSWORD: password,
-                            CONF_NAME: title,
-                        },
-                    )
+                await device.test_connection()
+                info = await device.get_device_info()
+                title = info.get("DeviceName") or name
+                return self.async_create_entry(
+                    title=title,
+                    data={
+                        CONF_HOST: host,
+                        CONF_PORT: port,
+                        CONF_PASSWORD: password,
+                        CONF_NAME: title,
+                    },
+                )
             except BirdDogAuthError:
                 errors["base"] = "invalid_auth"
             except BirdDogConnectionError:
@@ -103,9 +100,15 @@ class BirdDogConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_zeroconf(
         self, discovery_info: ZeroconfServiceInfo
     ) -> FlowResult:
-        """Handle Zeroconf / mDNS auto-discovery."""
+        """Handle Zeroconf / mDNS auto-discovery with strict device filtering."""
+        name = (discovery_info.name or "").lower()
+        hostname = (discovery_info.hostname or "").lower()
         host = str(discovery_info.host)
         port = discovery_info.port or DEFAULT_PORT
+
+        # Strictly ensure this is an actual BirdDog device, not an arbitrary NDI stream
+        if not ("birddog" in name or "birddog" in hostname or "play" in name or "play" in hostname):
+            return self.async_abort(reason="not_birddog")
 
         await self.async_set_unique_id(f"{host}:{port}")
         self._abort_if_unique_id_configured()
@@ -124,7 +127,7 @@ class BirdDogConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_zeroconf_confirm(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
-        """Confirm discovery and ask for device password."""
+        """Confirm discovery and strictly validate device password before adding."""
         errors: dict[str, str] = {}
 
         if user_input is not None:
@@ -138,19 +141,16 @@ class BirdDogConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             )
 
             try:
-                is_connected = await device.test_connection()
-                if not is_connected:
-                    errors["base"] = "cannot_connect"
-                else:
-                    return self.async_create_entry(
-                        title=self._discovered_name,
-                        data={
-                            CONF_HOST: self._discovered_host,
-                            CONF_PORT: self._discovered_port,
-                            CONF_PASSWORD: password,
-                            CONF_NAME: self._discovered_name,
-                        },
-                    )
+                await device.test_connection()
+                return self.async_create_entry(
+                    title=self._discovered_name,
+                    data={
+                        CONF_HOST: self._discovered_host,
+                        CONF_PORT: self._discovered_port,
+                        CONF_PASSWORD: password,
+                        CONF_NAME: self._discovered_name,
+                    },
+                )
             except BirdDogAuthError:
                 errors["base"] = "invalid_auth"
             except BirdDogConnectionError:

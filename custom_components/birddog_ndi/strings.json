@@ -25,7 +25,8 @@
       "unknown": "An unexpected error occurred."
     },
     "abort": {
-      "already_configured": "This BirdDog device is already configured."
+      "already_configured": "This BirdDog device is already configured.",
+      "not_birddog": "The discovered device is not a BirdDog PLAY decoder."
     }
   },
   "options": {

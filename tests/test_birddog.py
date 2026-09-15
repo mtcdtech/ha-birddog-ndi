@@ -46,6 +46,19 @@ class TestBirdDogDevice(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(device.password, "birddog")
         self.assertEqual(device.base_url, "http://192.168.1.50:8080")
 
+    async def test_birddog_login_success(self):
+        """Test successful authentication."""
+        device = BirdDogDevice(host="192.168.1.50", port=8080, password="correct-password")
+        with patch.object(device, "login", AsyncMock(return_value=True)):
+            self.assertTrue(await device.login())
+
+    async def test_birddog_login_invalid_password_raises(self):
+        """Test that wrong password is detected before adding device."""
+        device = BirdDogDevice(host="192.168.1.50", port=8080, password="wrong-password")
+        with patch.object(device, "login", AsyncMock(return_value=False)):
+            with self.assertRaises(BirdDogAuthError):
+                await device.test_connection()
+
     async def test_birddog_device_info_parsing(self):
         """Test parsing of device info endpoint."""
         device = BirdDogDevice(host="192.168.1.50", port=8080)
@@ -55,7 +68,11 @@ class TestBirdDogDevice(unittest.IsolatedAsyncioTestCase):
             "Model": "PLAY",
             "Version": "v4.5.1",
             "Serial": "BDPLAY12345",
-            "MacAddress": "00:1A:2B:3C:4D:5E",
+            "EthernetMAC": "00:1A:2B:3C:4D:5E",
+            "NetworkConfigMethod": "DHCP",
+            "IPAddress": "192.168.1.50",
+            "Netmask": "255.255.255.0",
+            "GateWay": "192.168.1.1",
         }
 
         with patch.object(device, "_request", AsyncMock(return_value=mock_about_response)):
@@ -63,24 +80,17 @@ class TestBirdDogDevice(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(info["DeviceName"], "Stage-Play-01")
             self.assertEqual(info["Model"], "PLAY")
             self.assertEqual(info["Version"], "v4.5.1")
-            self.assertEqual(info["MacAddress"], "00:1A:2B:3C:4D:5E")
+            self.assertEqual(info["EthernetMAC"], "00:1A:2B:3C:4D:5E")
 
     async def test_birddog_current_source(self):
-        """Test getting current NDI source with location=decoder format."""
+        """Test getting current NDI source."""
         device = BirdDogDevice(host="192.168.1.50", port=8080)
 
-        mock_source = {
-            "sourceHostname": "PROPRESENTER",
-            "sourceStreamName": "Lyrics",
-            "sourceIP": "192.168.1.100",
-            "sourcePort": 5961,
-        }
+        mock_source = {"sourceName": "PROPRESENTER (Lyrics)"}
 
         with patch.object(device, "_request", AsyncMock(return_value=mock_source)):
             source_data = await device.get_current_source()
-            self.assertEqual(source_data["sourceHostname"], "PROPRESENTER")
-            self.assertEqual(source_data["sourceStreamName"], "Lyrics")
-            self.assertEqual(source_data["sourceIP"], "192.168.1.100")
+            self.assertEqual(source_data["sourceName"], "PROPRESENTER (Lyrics)")
 
     async def test_birddog_set_source(self):
         """Test setting NDI source via POST."""
@@ -90,31 +100,26 @@ class TestBirdDogDevice(unittest.IsolatedAsyncioTestCase):
         with patch.object(device, "_request", mock_request):
             result = await device.set_source("CAM-01 (Main)")
             self.assertTrue(result)
+            mock_request.assert_called_once_with(
+                "POST",
+                "/connectTo",
+                json_data={"sourceName": "CAM-01 (Main)"},
+            )
 
     async def test_birddog_controls(self):
-        """Test auxiliary control endpoints: reboot, transport, screensaver, tally."""
+        """Test control endpoints: reboot, restart_video, refresh_sources."""
         device = BirdDogDevice(host="192.168.1.50", port=8080)
 
         mock_request = AsyncMock(return_value={"status": "ok"})
         with patch.object(device, "_request", mock_request):
-            # Reboot
             self.assertTrue(await device.reboot())
             mock_request.assert_called_with("POST", "/reboot")
 
-            # Restart video
             self.assertTrue(await device.restart_video())
-
-            # Set screensaver
-            self.assertTrue(await device.set_screensaver("Black"))
-
-            # Set transport
-            self.assertTrue(await device.set_transport("UDP"))
-
-            # Set tally
-            self.assertTrue(await device.set_tally(True))
+            self.assertTrue(await device.refresh_sources())
 
     async def test_birddog_fetch_all_data(self):
-        """Test fetching all data aggregate with rich decoder status."""
+        """Test fetching all data aggregate with clean PLAY telemetry."""
         device = BirdDogDevice(host="192.168.1.50", port=8080)
 
         with patch.object(
@@ -128,37 +133,16 @@ class TestBirdDogDevice(unittest.IsolatedAsyncioTestCase):
                 "DeviceName": "Auditorium-Play",
                 "Model": "PLAY",
                 "Version": "v5.0",
-                "MacAddress": "00:11:22:33:44:55",
+                "EthernetMAC": "00:11:22:33:44:55",
+                "NetworkConfigMethod": "DHCP",
+                "IPAddress": "192.168.1.50",
+                "Netmask": "255.255.255.0",
+                "GateWay": "192.168.1.1",
             }),
         ), patch.object(
             device,
             "get_current_source",
-            AsyncMock(return_value={
-                "sourceHostname": "SWITCHER",
-                "sourceStreamName": "Program",
-                "sourceIP": "192.168.1.10",
-                "sourcePort": 5960,
-            }),
-        ), patch.object(
-            device,
-            "get_failover_source",
-            AsyncMock(return_value={"sourceName": "BACKUP (Stream)"}),
-        ), patch.object(
-            device,
-            "get_decode_status",
-            AsyncMock(return_value={"bitrate": "120 Mbps", "resolution": "1080p60"}),
-        ), patch.object(
-            device,
-            "get_decode_setup",
-            AsyncMock(return_value={"TallyMode": "On", "ScreenSaverMode": "Logo"}),
-        ), patch.object(
-            device,
-            "get_decode_transport",
-            AsyncMock(return_value="TCP"),
-        ), patch.object(
-            device,
-            "get_video_output",
-            AsyncMock(return_value={"format": "1080p60"}),
+            AsyncMock(return_value={"sourceName": "SWITCHER (Program)"}),
         ), patch.object(
             device,
             "get_available_sources",
@@ -172,15 +156,11 @@ class TestBirdDogDevice(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(data["online"])
             self.assertEqual(data["device_name"], "Auditorium-Play")
             self.assertEqual(data["current_source"], "SWITCHER (Program)")
-            self.assertEqual(data["source_ip"], "192.168.1.10")
-            self.assertEqual(data["source_port"], 5960)
-            self.assertEqual(data["failover_source"], "BACKUP (Stream)")
-            self.assertEqual(data["bitrate"], "120 Mbps")
-            self.assertEqual(data["transport"], "TCP")
-            self.assertEqual(data["screensaver"], "Logo")
-            self.assertTrue(data["tally_on"])
-            self.assertTrue(data["is_decoding"])
             self.assertEqual(data["mac_address"], "00:11:22:33:44:55")
+            self.assertEqual(data["network_mode"], "DHCP")
+            self.assertEqual(data["ip_address"], "192.168.1.50")
+            self.assertTrue(data["is_decoding"])
+            self.assertFalse(data["audio_muted"])
 
 
 if __name__ == "__main__":

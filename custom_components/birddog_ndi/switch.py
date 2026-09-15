@@ -25,16 +25,15 @@ async def async_setup_entry(
 ) -> None:
     """Set up BirdDog switch entities."""
     coordinator: BirdDogDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id]
-    async_add_entities(
-        [
-            BirdDogAudioMuteSwitch(coordinator, entry),
-            BirdDogTallySwitch(coordinator, entry),
-        ]
-    )
+    async_add_entities([BirdDogAudioMuteSwitch(coordinator, entry)])
 
 
-class BirdDogBaseSwitch(CoordinatorEntity[BirdDogDataUpdateCoordinator], SwitchEntity):
-    """Base class for BirdDog switches."""
+class BirdDogAudioMuteSwitch(CoordinatorEntity[BirdDogDataUpdateCoordinator], SwitchEntity):
+    """Switch for audio mute control."""
+
+    _attr_has_entity_name = True
+    _attr_name = "Audio Mute"
+    _attr_icon = "mdi:volume-mute"
 
     def __init__(
         self,
@@ -44,7 +43,7 @@ class BirdDogBaseSwitch(CoordinatorEntity[BirdDogDataUpdateCoordinator], SwitchE
         """Initialize the switch entity."""
         super().__init__(coordinator)
         self._entry = entry
-        self._attr_has_entity_name = True
+        self._attr_unique_id = f"{coordinator.device.host}_audio_mute"
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -58,22 +57,6 @@ class BirdDogBaseSwitch(CoordinatorEntity[BirdDogDataUpdateCoordinator], SwitchE
             sw_version=data.get("firmware"),
             configuration_url=self.coordinator.device.base_url,
         )
-
-
-class BirdDogAudioMuteSwitch(BirdDogBaseSwitch):
-    """Switch for audio mute."""
-
-    _attr_name = "Audio Mute"
-    _attr_icon = "mdi:volume-mute"
-
-    def __init__(
-        self,
-        coordinator: BirdDogDataUpdateCoordinator,
-        entry: ConfigEntry,
-    ) -> None:
-        """Initialize the switch entity."""
-        super().__init__(coordinator, entry)
-        self._attr_unique_id = f"{coordinator.device.host}_audio_mute"
 
     @property
     def is_on(self) -> bool:
@@ -91,40 +74,5 @@ class BirdDogAudioMuteSwitch(BirdDogBaseSwitch):
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Unmute audio."""
         success = await self.coordinator.device.set_audio_mute(False)
-        if success:
-            await self.coordinator.async_request_refresh()
-
-
-class BirdDogTallySwitch(BirdDogBaseSwitch):
-    """Switch for Tally light indicator."""
-
-    _attr_name = "Tally Light"
-    _attr_icon = "mdi:alarm-light"
-
-    def __init__(
-        self,
-        coordinator: BirdDogDataUpdateCoordinator,
-        entry: ConfigEntry,
-    ) -> None:
-        """Initialize the switch entity."""
-        super().__init__(coordinator, entry)
-        self._attr_unique_id = f"{coordinator.device.host}_tally"
-
-    @property
-    def is_on(self) -> bool:
-        """Return True if tally light is on."""
-        if not self.coordinator.data:
-            return False
-        return bool(self.coordinator.data.get("tally_on", False))
-
-    async def async_turn_on(self, **kwargs: Any) -> None:
-        """Turn tally light on."""
-        success = await self.coordinator.device.set_tally(True)
-        if success:
-            await self.coordinator.async_request_refresh()
-
-    async def async_turn_off(self, **kwargs: Any) -> None:
-        """Turn tally light off."""
-        success = await self.coordinator.device.set_tally(False)
         if success:
             await self.coordinator.async_request_refresh()

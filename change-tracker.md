@@ -1,23 +1,22 @@
 # Change Tracker: ha-birddog-ndi
 
-## [2026-09-14] v1.1.0 - Zeroconf Auto-discovery, Authentication, Options Flow & Expanded Entities
-- **Goal**: Resolve "unknown" entity states caused by BirdUI password protection, add Zeroconf discovery, and expose all decoder sensors and controls.
-- **Root Cause of "Unknown" States**:
-  - BirdDog Play requires authentication via `/login` with `auth_password` to access decoder data. Without a session cookie, requests were rejected or redirected to the login form.
-- **Changes Implemented**:
-  - `birddog_api.py`: Implemented session cookie jar and `login()` method posting `auth_password`. Added automatic re-authentication upon 401/403 or login redirection.
-  - `config_flow.py`: Added password input (default `birddog`), Zeroconf mDNS discovery handlers (`_http._tcp.local.`, `_ndi._tcp.local.`, `_birddog._tcp.local.`), and an `OptionsFlowHandler` to update credentials without deleting the integration.
-  - `manifest.json`: Added Zeroconf discovery hooks and bumped version to `1.1.0`.
-  - Added new platforms: `binary_sensor.py` (Decoding Active) and `button.py` (Reboot, Restart Video, Refresh Sources).
-  - Expanded `sensor.py`: Added Source IP/Port, Video Format, Bitrate, Failover Source, Transport Protocol, Screensaver Mode, and MAC Address.
-  - Expanded `select.py`: Added Failover Source, Screen Saver Mode, and Transport Protocol selectors.
-  - Expanded `switch.py`: Added Tally Light switch alongside Audio Mute.
-  - Updated `tests/test_birddog.py` with full mock tests for auth, control endpoints, and rich data aggregation.
+## [2026-09-14] v1.2.0 - Fix Autodiscovery Scope, Enforce Password Pre-Validation, and Eliminate Unknown Entities
+- **Goal**:
+  1. Fix autodiscovery discovering all arbitrary NDI streams across the network.
+  2. Detect incorrect passwords before the device is added.
+  3. Fix entities showing "Unknown" by tailoring entities specifically to BirdDog PLAY hardware.
+- **Root Causes & Solutions**:
+  1. *Autodiscovery flood*: `manifest.json` included generic `_ndi._tcp.local.` and `*play*`. Removed these broad matchers and restricted discovery to `_http._tcp.local.` with `name: birddog*` and `_birddog._tcp.local.`, plus strict filtering in `async_step_zeroconf`.
+  2. *Password acceptance bug*: `POST /login` on BirdUI returns HTTP 200 with the login form re-rendered when a password is wrong. Added checks for re-rendered form elements and failure markers, and verified session persistence. `test_connection()` now raises `BirdDogAuthError` explicitly on bad password, which `config_flow` catches to show `invalid_auth`.
+  3. *Unknown entities*: Camera-only features (`/decodestatus`, `/decodeTransport`, `/connectTo?location=DecoderFailOver`, etc.) do not exist on BirdDog PLAY hardware. Removed these unsupported entities and focused on PLAY's native capabilities (Status, Current Source, IP, MAC Address, Network Mode, Firmware, Model, Decoding Active, Audio Mute, Reboot, Restart Video, Refresh Sources).
 - **Validation**:
   - JSON validation clean.
   - Python byte compilation clean.
-  - 6 unit tests passing.
-  - Tagged and released `v1.1.0`.
+  - 8 unit tests passing.
+  - Tagged and released `v1.2.0`.
+
+## [2026-09-14] v1.1.0 - Zeroconf Auto-discovery, Authentication, Options Flow & Expanded Entities
+- Initial expansion with login sessions and discovery.
 
 ## [2026-09-14] v1.0.0 - Initial Project Initialization
 - Initial scaffold created with basic API client, DataUpdateCoordinator, Config Flow, Sensor, Select, and Switch platforms.

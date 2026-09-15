@@ -29,41 +29,6 @@ SENSOR_TYPES: tuple[SensorEntityDescription, ...] = (
         icon="mdi:video-input-antenna",
     ),
     SensorEntityDescription(
-        key="source_ip",
-        name="Source IP",
-        icon="mdi:ip-network-outline",
-    ),
-    SensorEntityDescription(
-        key="source_port",
-        name="Source Port",
-        icon="mdi:numeric",
-    ),
-    SensorEntityDescription(
-        key="failover_source",
-        name="Failover NDI Source",
-        icon="mdi:video-switch-outline",
-    ),
-    SensorEntityDescription(
-        key="video_format",
-        name="Video Format",
-        icon="mdi:television-box",
-    ),
-    SensorEntityDescription(
-        key="bitrate",
-        name="Decode Bitrate",
-        icon="mdi:speedometer",
-    ),
-    SensorEntityDescription(
-        key="transport",
-        name="Transport Protocol",
-        icon="mdi:transit-connection-variant",
-    ),
-    SensorEntityDescription(
-        key="screensaver",
-        name="Screen Saver Mode",
-        icon="mdi:image-filter-frames",
-    ),
-    SensorEntityDescription(
         key="ip_address",
         name="IP Address",
         icon="mdi:ip-network",
@@ -74,9 +39,19 @@ SENSOR_TYPES: tuple[SensorEntityDescription, ...] = (
         icon="mdi:network",
     ),
     SensorEntityDescription(
+        key="network_mode",
+        name="Network Mode",
+        icon="mdi:cog-network",
+    ),
+    SensorEntityDescription(
         key="firmware",
         name="Firmware Version",
         icon="mdi:chip",
+    ),
+    SensorEntityDescription(
+        key="model",
+        name="Model",
+        icon="mdi:devices",
     ),
 )
 
@@ -132,28 +107,40 @@ class BirdDogSensor(CoordinatorEntity[BirdDogDataUpdateCoordinator], SensorEntit
             return None
 
         key = self.entity_description.key
+        data = self.coordinator.data
+
         if key == "status":
-            return "online" if self.coordinator.data.get("online") else "offline"
+            return "Online" if data.get("online") else "Offline"
         if key == "current_source":
-            return self.coordinator.data.get("current_source")
-        if key == "source_ip":
-            return self.coordinator.data.get("source_ip")
-        if key == "source_port":
-            return self.coordinator.data.get("source_port")
-        if key == "failover_source":
-            return self.coordinator.data.get("failover_source")
-        if key == "video_format":
-            return self.coordinator.data.get("video_format")
-        if key == "bitrate":
-            return self.coordinator.data.get("bitrate")
-        if key == "transport":
-            return self.coordinator.data.get("transport")
-        if key == "screensaver":
-            return self.coordinator.data.get("screensaver")
+            return data.get("current_source")
         if key == "ip_address":
-            return self.coordinator.data.get("host")
+            return data.get("ip_address") or data.get("host")
         if key == "mac_address":
-            return self.coordinator.data.get("mac_address")
+            return data.get("mac_address")
+        if key == "network_mode":
+            return data.get("network_mode")
         if key == "firmware":
-            return self.coordinator.data.get("firmware")
+            return data.get("firmware")
+        if key == "model":
+            return data.get("model")
         return None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return device attributes for deeper diagnostics without creating empty entities."""
+        if not self.coordinator.data:
+            return {}
+
+        data = self.coordinator.data
+        if self.entity_description.key == "current_source":
+            return {
+                "is_decoding": data.get("is_decoding", False),
+                "available_sources_count": len(data.get("available_sources", [])),
+            }
+        if self.entity_description.key == "ip_address":
+            return {
+                "netmask": data.get("netmask"),
+                "gateway": data.get("gateway"),
+                "port": data.get("port"),
+            }
+        return {}
