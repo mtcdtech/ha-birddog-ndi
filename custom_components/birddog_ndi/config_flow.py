@@ -41,6 +41,34 @@ def get_user_data_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
     )
 
 
+def _is_device_already_configured(
+    entries: list[config_entries.ConfigEntry],
+    host: str,
+    hostname: str | None = None,
+    addresses: list[Any] | None = None,
+) -> bool:
+    """Check if a device is already configured across all existing entries."""
+    candidates = {host.strip().lower(), host.strip().split(":")[0].lower()}
+    if hostname:
+        clean_hostname = hostname.strip().lower().rstrip(".")
+        candidates.add(clean_hostname)
+        candidates.add(hostname.strip().lower())
+    if addresses:
+        for addr in addresses:
+            addr_str = str(addr).strip().lower()
+            candidates.add(addr_str)
+            candidates.add(addr_str.split(":")[0])
+
+    for entry in entries:
+        entry_host = str(entry.data.get(CONF_HOST, "")).strip().lower()
+        if entry_host in candidates:
+            return True
+        entry_uid = str(entry.unique_id or "").strip().lower()
+        if any(c == entry_uid or entry_uid.startswith(f"{c}:") or c in entry_uid for c in candidates):
+            return True
+    return False
+
+
 class BirdDogConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for BirdDog NDI devices."""
 
@@ -65,12 +93,8 @@ class BirdDogConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             name = user_input.get(CONF_NAME, DEFAULT_NAME).strip()
 
             # Abort if device is already configured in any existing entry
-            for entry in self._async_current_entries():
-                if (
-                    entry.data.get(CONF_HOST) == host
-                    or entry.unique_id in (host, f"{host}:{port}", f"{host}:80", f"{host}:8080")
-                ):
-                    return self.async_abort(reason="already_configured")
+            if _is_device_already_configured(self._async_current_entries(), host):
+                return self.async_abort(reason="already_configured")
 
             await self.async_set_unique_id(host)
             self._abort_if_unique_id_configured()
@@ -119,13 +143,21 @@ class BirdDogConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if not any(k in name or k in hostname for k in valid_keywords):
             return self.async_abort(reason="not_birddog")
 
-        # Abort if device is already configured in any existing entry (matches IP, hostname, or legacy unique_id)
-        for entry in self._async_current_entries():
-            if (
-                entry.data.get(CONF_HOST) == host
-                or entry.unique_id in (host, f"{host}:{port}", f"{host}:80", f"{host}:8080")
-            ):
-                return self.async_abort(reason="already_configured")
+        # Collect all candidate IP addresses and hostnames from discovery
+        addresses = []
+        if hasattr(discovery_info, "ip_address") and discovery_info.ip_address:
+            addresses.append(str(discovery_info.ip_address))
+        if hasattr(discovery_info, "addresses") and discovery_info.addresses:
+            addresses.extend(str(a) for a in discovery_info.addresses)
+
+        # Abort immediately if device is already configured
+        if _is_device_already_configured(
+            self._async_current_entries(),
+            host=host,
+            hostname=discovery_info.hostname,
+            addresses=addresses,
+        ):
+            return self.async_abort(reason="already_configured")
 
         await self.async_set_unique_id(host)
         self._abort_if_unique_id_configured()
@@ -147,10 +179,14 @@ class BirdDogConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Confirm discovery and validate connection."""
         errors: dict[str, str] = {}
 
+        # Abort immediately before showing the form if already configured
+        if self._discovered_host and _is_device_already_configured(
+            self._async_current_entries(),
+            host=self._discovered_host,
+        ):
+            return self.async_abort(reason="already_configured")
+
         if user_input is not None:
-            for entry in self._async_current_entries():
-                if entry.data.get(CONF_HOST) == self._discovered_host:
-                    return self.async_abort(reason="already_configured")
 
             password = user_input.get(CONF_PASSWORD, DEFAULT_PASSWORD).strip()
             session = async_get_clientsession(self.hass)

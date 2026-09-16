@@ -1,10 +1,19 @@
 # Current State: ha-birddog-ndi
 
 ## Project Status
-- **Status**: Release v1.3.1 ready, tested, and validated.
+- **Status**: Release v1.3.2 ready, tested, and validated.
 - **GitHub Repository**: `mtcdtech/ha-birddog-ndi`
 - **Domain**: `birddog_ndi`
-- **Version**: 1.3.1
+- **Version**: 1.3.2
+
+## Features in v1.3.2
+1. **Official Brand Assets in `brand/` Directory**:
+   - Created `custom_components/birddog_ndi/brand/` containing all required Home Assistant brand files (`icon.png`, `icon@2x.png`, `logo.png`, `logo@2x.png`, `dark_icon.png`, `dark_logo.png`, etc.) ensuring the green BirdDog logo displays on Home Assistant integration cards, device pages, and dashboards.
+2. **Automatic Ghost Discovery Dismissal**:
+   - In `__init__.py`, `async_setup_entry` automatically scans `hass.config_entries.flow.async_progress_by_handler` and aborts any pending discovery flows matching configured devices, eliminating ghost "Discovered" cards from previous sessions upon startup/reload.
+3. **Deep De-Duplication in Config Flow**:
+   - Added `_is_device_already_configured` matching IP, resolvable hostnames, and legacy port IDs.
+   - `async_step_zeroconf_confirm` now checks before displaying the form, instantly dismissing the card if clicked.
 
 ## Features in v1.3.1
 1. **Duplicate Discovery Fix**:

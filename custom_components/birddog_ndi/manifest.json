@@ -6,7 +6,7 @@
   "documentation": "https://github.com/mtcdtech/ha-birddog-ndi",
   "issue_tracker": "https://github.com/mtcdtech/ha-birddog-ndi/issues",
   "iot_class": "local_polling",
-  "version": "1.3.1",
+  "version": "1.3.2",
   "requirements": [],
   "zeroconf": [
     {

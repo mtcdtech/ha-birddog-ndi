@@ -240,6 +240,18 @@ class TestBirdDogConfigFlow(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["type"], "abort")
         self.assertEqual(result["reason"], "already_configured")
 
+    async def test_zeroconf_confirm_aborts_immediately_if_already_configured(self):
+        """Test zeroconf_confirm aborts before displaying form if host was configured."""
+        existing_entry = MagicMock()
+        existing_entry.data = {"host": "192.168.1.50"}
+        existing_entry.unique_id = "192.168.1.50"
+        self.flow._async_current_entries = MagicMock(return_value=[existing_entry])
+
+        self.flow._discovered_host = "192.168.1.50"
+        result = await self.flow.async_step_zeroconf_confirm(user_input=None)
+        self.assertEqual(result["type"], "abort")
+        self.assertEqual(result["reason"], "already_configured")
+
 
 if __name__ == "__main__":
     unittest.main()

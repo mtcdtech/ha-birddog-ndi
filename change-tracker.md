@@ -1,5 +1,20 @@
 # Change Tracker: ha-birddog-ndi
 
+## [2026-09-16] v1.3.2 - Official Brand Directory Integration & Automatic Discovery Dismissal
+- **Goal**: Fix missing icon/logo on Home Assistant device pages and eliminate lingering "Discovered" cards for already-configured BirdDog devices.
+- **Root Cause Analysis**:
+  1. *Missing Brand Icon*: Home Assistant core does not read brand icons from the integration root (`custom_components/<domain>/icon.png`). It strictly expects a dedicated `brand/` directory inside the integration folder containing `icon.png`, `icon@2x.png`, `logo.png`, `dark_icon.png`, etc., served via `/api/brands/integration/birddog_ndi/`.
+  2. *Discovered Cards Still Showing*: When devices were discovered in previous sessions, Home Assistant stored active discovery flows in its persistent flow manager (`core.config_entries`). Those pending flows remained on the dashboard across restarts unless aborted or dismissed. Furthermore, `async_step_zeroconf_confirm` displayed the password prompt before checking if the device was already added.
+- **Changes Implemented**:
+  - Created `custom_components/birddog_ndi/brand/` with all required image variants (`icon.png`, `icon@2x.png`, `logo.png`, `logo@2x.png`, `dark_icon.png`, `dark_icon@2x.png`, `dark_logo.png`, `dark_logo@2x.png`).
+  - `__init__.py`: Added automatic dismissal in `async_setup_entry` that scans `hass.config_entries.flow.async_progress_by_handler(DOMAIN)` and aborts any stale discovery flows matching configured devices upon startup or reload.
+  - `config_flow.py`: Implemented `_is_device_already_configured` with candidate host matching (IP, resolvable hostname, and port variants) and added immediate abort check to `async_step_zeroconf_confirm`.
+  - Added unit test in `tests/test_birddog.py` validating `async_step_zeroconf_confirm` abort (14/14 tests passing).
+- **Validation**:
+  - Python byte compilation clean.
+  - JSON schema validation clean.
+  - 14/14 unit tests passed (0.021s).
+
 ## [2026-09-15] v1.3.1 - Fix Duplicate Discovery Prompting and Integrate Official Branding Icon
 - **Goal**: Prevent Home Assistant from re-discovering and repeatedly prompting to add BirdDog devices that are already configured, and integrate official BirdDog green icon branding.
 - **Root Cause of Duplicate Discovery**:

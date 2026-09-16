@@ -15,12 +15,15 @@ A custom Home Assistant integration to monitor and control **BirdDog NDI** devic
 
 ---
 
-## What's New in v1.3.1
+## What's New in v1.3.2
 
-- 🚫 **Duplicate Discovery Fixed**: Resolved Zeroconf mDNS re-discovering and prompting to configure BirdDog devices that were already added (fixed port 80/8080 unique_id discrepancy and added active host de-duplication).
-- 🎨 **Official Component Icon**: Integrated custom high-resolution BirdDog green branding icon across HACS and repository metadata.
+- 🎨 **Official Home Assistant `brand/` Directory**: Created `custom_components/birddog_ndi/brand/` containing all required icon and logo assets (`icon.png`, `icon@2x.png`, `logo.png`, `logo@2x.png`, `dark_` variants) so Home Assistant displays the custom green BirdDog branding on integration cards, device pages, and dashboards.
+- 🧹 **Automatic Discovery Dismissal**: Added active cleanup in integration startup to automatically abort and clear any lingering "Discovered" cards in Home Assistant for devices that are already added.
+- 🚫 **Instant Discovery De-Duplication**: Added comprehensive candidate host and address matching across IP, hostname, and legacy ports, immediately aborting Zeroconf before prompting for credentials.
 
 ---
+
+## What's New in v1.3.1
 
 ## What's New in v1.3.0
 

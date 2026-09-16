@@ -52,6 +52,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
+    # Automatically dismiss any pending discovery flows for this device so ghost discovery cards disappear
+    if hasattr(hass.config_entries, "flow") and hasattr(hass.config_entries.flow, "async_progress_by_handler"):
+        for flow in hass.config_entries.flow.async_progress_by_handler(DOMAIN):
+            flow_context = flow.get("context", {})
+            flow_host = flow_context.get("title_placeholders", {}).get("host")
+            if flow_host:
+                clean_flow_host = str(flow_host).strip().lower().split(":")[0]
+                if clean_flow_host in (host.strip().lower(), host.strip().split(":")[0].lower()):
+                    try:
+                        hass.config_entries.flow.async_abort(flow["flow_id"])
+                    except Exception as err:
+                        _LOGGER.debug("Could not auto-abort flow %s: %s", flow.get("flow_id"), err)
+
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
     return True
 
