@@ -15,15 +15,41 @@ A custom Home Assistant integration to monitor and control **BirdDog NDI** devic
 
 ---
 
-## What's New in v1.3.2
+## What's New in v1.3.7
 
-- 🎨 **Official Home Assistant `brand/` Directory**: Created `custom_components/birddog_ndi/brand/` containing all required icon and logo assets (`icon.png`, `icon@2x.png`, `logo.png`, `logo@2x.png`, `dark_` variants) so Home Assistant displays the custom green BirdDog branding on integration cards, device pages, and dashboards.
-- 🧹 **Automatic Discovery Dismissal**: Added active cleanup in integration startup to automatically abort and clear any lingering "Discovered" cards in Home Assistant for devices that are already added.
-- 🚫 **Instant Discovery De-Duplication**: Added comprehensive candidate host and address matching across IP, hostname, and legacy ports, immediately aborting Zeroconf before prompting for credentials.
+- 🛠️ **Dedicated Session & Numerical IP Cookie Jar Isolation**: Switched client architecture to dedicated sessions using `aiohttp.CookieJar(unsafe=True)`, ensuring session cookies for raw numerical IP addresses are never dropped by strict client policies.
+- 🔄 **Automatic Port 80-to-8080 Runtime Migration & Polling Auto-Correction**: Existing and newly added config entries configured on port 80 are automatically probed for port 8080 REST API availability and migrated seamlessly in both coordinator polling and integration startup.
+- 🎯 **Accurate Network Error Classification**: Unreachable devices or network timeouts now correctly trigger connection errors (`cannot_connect`) rather than misleading authentication failure prompts (`invalid_auth`).
+- 🔐 **Header-Injected Token Persistence**: All REST and auth probe requests explicitly attach `BirdDogSession` cookies in request headers for persistent session recognition across firmware versions.
 
 ---
 
-## What's New in v1.3.1
+## What's New in v1.3.6
+
+- 🍪 **aiohttp Dual `Set-Cookie` Collision Fix**: Resolved session loss where devices emit both `BirdDogSession=; Max-Age=0` and `BirdDogSession=<token>`, manually parsing headers with `allow_redirects=False` and capturing 302 redirects.
+
+---
+
+## What's New in v1.3.5
+
+- 🧩 **Discovery Flow Context Host Fallback**: Retains and restores discovered host and port context across config flow interruptions and page reloads.
+
+---
+
+## What's New in v1.3.4
+
+- ⚡ **BirdDog Mini Support & Auto Port 8080 Redirection**: Automatically redirects web UI port 80 to the unauthenticated REST API on port 8080 for BirdDog Mini devices.
+- 📋 **Dictionary Key NDI Source Extraction**: Expanded source discovery to parse dictionary key-value mappings returned by `/list`.
+
+---
+
+## What's New in v1.3.3
+
+- 🔍 **Multi-Vector Zeroconf De-Duplication**: Prevents duplicate discovery cards by correlating IPv4, IPv6 link-local addresses, hardware MAC suffixes, and active in-progress flows.
+
+---
+
+## What's New in v1.3.2
 
 ## What's New in v1.3.0
 

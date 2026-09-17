@@ -42,8 +42,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     )
     interval: int = entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)
 
-    session = async_get_clientsession(hass)
-    device = BirdDogDevice(host=host, port=port, password=password, session=session)
+    # Automatically correct legacy or misconfigured port 80 to 8080 if REST API is responsive on 8080
+    if port == 80:
+        test_dev = BirdDogDevice(host=host, port=80, password=password)
+        if await test_dev._async_probe_port_8080():
+            port = test_dev.port
+            hass.config_entries.async_update_entry(
+                entry,
+                data={**entry.data, CONF_PORT: port},
+            )
+            _LOGGER.info("Auto-migrated BirdDog device %s config entry from port 80 to %s", host, port)
+        await test_dev.close()
+
+    device = BirdDogDevice(host=host, port=port, password=password)
 
     coordinator = BirdDogDataUpdateCoordinator(hass, device, update_interval=interval)
     await coordinator.async_config_entry_first_refresh()

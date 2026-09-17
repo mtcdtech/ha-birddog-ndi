@@ -5,6 +5,8 @@ import sys
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import aiohttp
+
 _real_getaddrinfo = socket.getaddrinfo
 
 def _fast_getaddrinfo(host, port, *args, **kwargs):
@@ -414,6 +416,30 @@ class TestBirdDogConfigFlow(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["type"], "form")
         self.assertEqual(result["step_id"], "zeroconf_confirm")
         self.assertEqual(self.flow._discovered_port, 8080)
+
+    async def test_check_auth_required_raises_connection_error_when_unreachable(self):
+        """Test check_auth_required raises BirdDogConnectionError when device is unreachable."""
+        device = BirdDogDevice(host="192.0.2.1", port=8080, password="secret")
+        mock_session = MagicMock()
+        mock_session.get.side_effect = aiohttp.ClientConnectorError(
+            connection_key=MagicMock(), os_error=OSError("Network unreachable")
+        )
+        with patch.object(device, "_get_session", AsyncMock(return_value=mock_session)):
+            with self.assertRaises(BirdDogConnectionError):
+                await device.check_auth_required()
+
+    async def test_fetch_all_data_auto_probes_port_8080(self):
+        """Test fetch_all_data automatically corrects port 80 to 8080."""
+        device = BirdDogDevice(host="192.168.5.83", port=80, password="1400Frankford")
+        with patch.object(device, "_async_probe_port_8080", AsyncMock(side_effect=lambda: setattr(device, "port", 8080) or True)), \
+             patch.object(device, "get_device_info", AsyncMock(return_value={"DeviceName": "NDI-Cam", "Model": "MINI"})), \
+             patch.object(device, "get_current_source", AsyncMock(return_value={"sourceName": "Cam 1"})), \
+             patch.object(device, "get_operation_mode", AsyncMock(return_value=None)), \
+             patch.object(device, "get_available_sources", AsyncMock(return_value=["Cam 1"])), \
+             patch.object(device, "get_audio_mute", AsyncMock(return_value=False)):
+            data = await device.fetch_all_data()
+            self.assertEqual(device.port, 8080)
+            self.assertEqual(data["device_name"], "NDI-Cam")
 
 
 if __name__ == "__main__":

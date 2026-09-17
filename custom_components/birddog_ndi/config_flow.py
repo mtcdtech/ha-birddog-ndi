@@ -357,8 +357,7 @@ class BirdDogConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             await self.async_set_unique_id(host)
             self._abort_if_unique_id_configured()
 
-            session = async_get_clientsession(self.hass)
-            device = BirdDogDevice(host=host, port=port, password=password, session=session)
+            device = BirdDogDevice(host=host, port=port, password=password)
 
             try:
                 await device.test_connection()
@@ -380,6 +379,8 @@ class BirdDogConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             except Exception as ex:  # pylint: disable=broad-except
                 _LOGGER.exception("Unexpected exception configuring BirdDog: %s", ex)
                 errors["base"] = "unknown"
+            finally:
+                await device.close()
 
         return self.async_show_form(
             step_id="user",
@@ -475,13 +476,11 @@ class BirdDogConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         if user_input is not None:
             password = user_input.get(CONF_PASSWORD, DEFAULT_PASSWORD).strip()
-            session = async_get_clientsession(self.hass)
             _LOGGER.info("Configuring BirdDog device at %s:%s", host, port)
             device = BirdDogDevice(
                 host=host,
                 port=port,
                 password=password,
-                session=session,
             )
 
             try:
@@ -507,6 +506,8 @@ class BirdDogConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 errors["base"] = "cannot_connect"
             except Exception:
                 errors["base"] = "unknown"
+            finally:
+                await device.close()
 
         schema = vol.Schema(
             {

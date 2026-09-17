@@ -119,10 +119,17 @@ class BirdDogDevice:
         session = await self._get_session()
         probe_endpoints = [ENDPOINT_ABOUT, ENDPOINT_VERSION, ENDPOINT_OPERATION_MODE, ENDPOINT_CONNECT_TO]
 
+        headers = {}
+        if self._session_token:
+            headers["Cookie"] = f"BirdDogSession={self._session_token}"
+
+        reachable = False
+        last_error = None
         for ep in probe_endpoints:
             url = f"{self.base_url}{ep}"
             try:
-                async with session.get(url, timeout=self.timeout, allow_redirects=True) as resp:
+                async with session.get(url, headers=headers, timeout=self.timeout, allow_redirects=True) as resp:
+                    reachable = True
                     if resp.status in (401, 403) or (
                         resp.history and any("/login" in str(r.url) for r in resp.history)
                     ):
@@ -152,8 +159,14 @@ class BirdDogDevice:
                                 self._auth_required = False
                                 self._authenticated = True
                                 return False
-            except (aiohttp.ClientError, asyncio.TimeoutError):
+            except (aiohttp.ClientError, asyncio.TimeoutError) as err:
+                last_error = err
                 continue
+
+        if not reachable:
+            raise BirdDogConnectionError(
+                f"Failed to connect to BirdDog device at {self.host}:{self.port}: {last_error}"
+            )
 
         # Default to requiring auth if cannot conclusively determine
         self._auth_required = bool(self.password)
@@ -484,6 +497,10 @@ class BirdDogDevice:
 
     async def fetch_all_data(self) -> dict[str, Any]:
         """Fetch all device states in a single polling cycle."""
+        # Auto-correct port 80 to 8080 if REST API is responsive on 8080
+        if self.port == 80:
+            await self._async_probe_port_8080()
+
         if self._auth_required and not self._authenticated and self.password:
             await self.login()
 

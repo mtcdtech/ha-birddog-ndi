@@ -1,10 +1,10 @@
 # Current State: ha-birddog-ndi
 
 ## Project Status
-- **Status**: Release v1.3.6 tested and validated against live physical hardware (`192.168.5.83`) with password authentication.
+- **Status**: Release v1.3.7 tested and validated against live physical hardware (`192.168.5.83`) with password authentication.
 - **GitHub Repository**: `mtcdtech/ha-birddog-ndi`
 - **Domain**: `birddog_ndi`
-- **Version**: 1.3.6
+- **Version**: 1.3.7
 
 ## Features in v1.3.4
 1. **Automatic Port 80-to-8080 REST API Redirection**:

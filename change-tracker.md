@@ -1,5 +1,22 @@
 # Change Tracker: ha-birddog-ndi
 
+## [2026-09-17] v1.3.7 - Fix Session Isolation for Numerical IPs, Auto Port Migration & Accurate Error Categorization
+- **Root Causes Discovered**:
+  1. *Numerical IP Cookie Dropping*: When `session = async_get_clientsession(self.hass)` was used, Home Assistant's default cookie jar operates with `unsafe=False`, which silently drops cookies for raw IP address targets (`192.168.5.83`).
+  2. *Unreachable Devices Misreported as Auth Failures*: When network probes timed out or failed to connect, `check_auth_required()` previously defaulted to `self._auth_required = bool(self.password)`. Calling `login()` on an unreachable device subsequently failed and raised `BirdDogAuthError`, deceiving users into believing their password was rejected when the device was actually unreachable.
+  3. *Un-migrated Port 80 in Existing Entries & Coordinator Polling*: Existing config entries saved with port 80 were never auto-corrected to port 8080 during polling or startup, causing repeated polling errors on port 80.
+  4. *Outdated README on GitHub*: The repository `README.md` "What's New" section was not updated since v1.3.2.
+- **Fixes Implemented**:
+  - `config_flow.py`: Switched `BirdDogDevice` instances to dedicated sessions with `aiohttp.CookieJar(unsafe=True)` and guaranteed cleanup with `await device.close()`.
+  - `birddog_api.py`:
+    - In `check_auth_required()`: attached session token headers and raised `BirdDogConnectionError` when no endpoints are reachable.
+    - In `fetch_all_data()`: added automatic `_async_probe_port_8080()` probe to switch port 80 to 8080 during polling.
+  - `__init__.py`: Added startup port migration to auto-correct any existing config entry with port 80 to 8080 and persist the update in Home Assistant.
+  - `README.md`: Backfilled and formatted all "What's New" sections from v1.3.3 through v1.3.7.
+  - `tests/test_birddog.py`: Added test coverage for unreachable device connection error classification and auto-probing in `fetch_all_data` (24/24 tests passing).
+- **Validation**:
+  - Validated live against physical BirdDog Mini at `192.168.5.83` with password `1400Frankford`. Port auto-correction, login, and coordinator polling all succeed.
+
 ## [2026-09-17] v1.3.6 - Fix aiohttp Dual Set-Cookie Session Dropping & 302 Redirect Handling
 - **Root Cause Discovered**:
   - The BirdDog web portal sends two `Set-Cookie` headers on successful login:
