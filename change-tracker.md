@@ -1,6 +1,20 @@
 # Change Tracker: ha-birddog-ndi
 
-## [2026-09-17] v1.3.4 - BirdDog Mini Authentication Fix & Port 80-to-8080 Auto-Redirection
+## [2026-09-17] v1.3.6 - Fix aiohttp Dual Set-Cookie Session Dropping & 302 Redirect Handling
+- **Root Cause Discovered**:
+  - The BirdDog web portal sends two `Set-Cookie` headers on successful login:
+    1. `Set-Cookie: BirdDogSession=; Max-Age=0` (cookie clear)
+    2. `Set-Cookie: BirdDogSession=<token>` (new session token)
+    followed by HTTP 302 to `/dashboard`.
+  - When `allow_redirects=True`, `aiohttp` evaluated the `Max-Age=0` cookie and cleared the cookie jar before following the redirect. The server saw no session cookie on `/dashboard` and redirected back to `/login`, tricking the integration into thinking authentication failed!
+- **Fix**:
+  - Set `allow_redirects=False` in `login()` to intercept and parse all `Set-Cookie` headers directly.
+  - Filter out `Max-Age=0`, extract the real session token, and manually store it in `self._session_token` and the cookie jar.
+  - Attach `Cookie: BirdDogSession=<token>` header to all subsequent requests.
+  - Detect 302 redirect to non-login paths as verified successful authentication.
+  - Validated live against `192.168.5.83` using password `1400Frankford`—`dev.login()` returns `True`, `dev.test_connection()` returns `True`, all telemetry and 7 NDI sources retrieved.
+
+## [2026-09-17] v1.3.5 - Flow Context Fallback & Diagnostic Logging
 - **Goal**: Fix persistent authentication failure on BirdDog Mini (firmware `BirdDog Mini NDI_4_V_3.6.3`, IP `192.168.5.83`) and expand telemetry and NDI source discovery.
 - **Root Cause Analysis**:
   1. *Port 80 vs 8080 Separation*: Port 80 is exclusively the web management portal (Antmicro/BirdUI) protected by a web password. It returns an HTML `<form id="auth_form"` for every URL path and does not host the JSON REST API. Port 8080 is the actual BirdDog REST API (Express server), which is completely open and requires zero authentication.

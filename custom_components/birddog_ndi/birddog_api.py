@@ -61,6 +61,7 @@ class BirdDogDevice:
         self._own_session = False
         self._auth_required: bool | None = None
         self._authenticated = False
+        self._session_token: str | None = None
 
     @property
     def base_url(self) -> str:
@@ -175,16 +176,35 @@ class BirdDogDevice:
         for port in ports_to_try:
             url = f"http://{self.host}:{port}{ENDPOINT_LOGIN}"
             try:
+                # Intercept redirects with allow_redirects=False to capture cookies before aiohttp clearance collision
                 async with session.post(
                     url,
                     data=payload,
                     timeout=self.timeout,
-                    allow_redirects=True,
+                    allow_redirects=False,
                 ) as resp:
+                    raw_cookies = resp.headers.getall("Set-Cookie", [])
+                    for c in raw_cookies:
+                        if "BirdDogSession=" in c and "Max-Age=0" not in c:
+                            val = c.split("BirdDogSession=")[1].split(";")[0].strip()
+                            if val:
+                                self._session_token = val
+                                try:
+                                    from yarl import URL
+                                    session.cookie_jar.update_cookies({"BirdDogSession": val}, URL(f"http://{self.host}:{port}"))
+                                except Exception:
+                                    pass
+                                break
+
+                    location = resp.headers.get("Location", "")
+                    if resp.status in (302, 303) and location and location != ENDPOINT_LOGIN:
+                        self._authenticated = True
+                        _LOGGER.debug("Successfully authenticated with BirdDog on %s:%s (redirected to %s)", self.host, port, location)
+                        return True
+
                     if resp.status in (401, 403):
                         _LOGGER.warning("BirdDog at %s:%s rejected password (HTTP %s)", self.host, port, resp.status)
-                        self._authenticated = False
-                        return False
+                        continue
 
                     text = await resp.text()
                     lower_text = text.lower()
@@ -197,18 +217,15 @@ class BirdDogDevice:
                         or "login failed" in lower_text
                     ):
                         _LOGGER.warning("BirdDog at %s:%s reported invalid password", self.host, port)
-                        self._authenticated = False
-                        return False
+                        continue
 
-                    # If the response still contains the login password form, login was not successful
-                    if "<form" in lower_text and ("auth_password" in lower_text or 'type="password"' in lower_text):
-                        _LOGGER.warning("BirdDog at %s:%s re-rendered login form", self.host, port)
-                        self._authenticated = False
-                        return False
+                    # If the response no longer renders the login form, login was successful
+                    if "auth_form" not in lower_text and "auth_password" not in lower_text:
+                        self._authenticated = True
+                        _LOGGER.debug("Successfully authenticated with BirdDog on %s:%s", self.host, port)
+                        return True
 
-                    self._authenticated = True
-                    _LOGGER.debug("Successfully authenticated with BirdDog on %s:%s", self.host, port)
-                    return True
+                    _LOGGER.warning("BirdDog at %s:%s re-rendered login form", self.host, port)
             except (aiohttp.ClientError, asyncio.TimeoutError) as err:
                 _LOGGER.debug("Login attempt to %s failed: %s", url, err)
 
@@ -230,6 +247,9 @@ class BirdDogDevice:
         headers = {
             "Accept": "application/json, text/plain, */*",
         }
+
+        if self._session_token:
+            headers["Cookie"] = f"BirdDogSession={self._session_token}"
 
         # If HTTP Basic Auth header needed
         if self.password and self._auth_required:
