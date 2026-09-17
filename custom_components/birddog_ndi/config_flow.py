@@ -458,20 +458,28 @@ class BirdDogConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Confirm discovery and validate connection."""
         errors: dict[str, str] = {}
 
+        # Recover host and port if flow was restored or context retained
+        host = self._discovered_host or (
+            self.context.get("title_placeholders", {}).get("host")
+            if hasattr(self, "context") and self.context
+            else None
+        )
+        port = self._discovered_port or DEFAULT_PORT
+
         # Abort immediately before showing the form if already configured
-        if self._discovered_host and _is_device_already_configured(
+        if host and _is_device_already_configured(
             self._async_current_entries(),
-            host=self._discovered_host,
+            host=host,
         ):
             return self.async_abort(reason="already_configured")
 
         if user_input is not None:
-
             password = user_input.get(CONF_PASSWORD, DEFAULT_PASSWORD).strip()
             session = async_get_clientsession(self.hass)
+            _LOGGER.info("Configuring BirdDog device at %s:%s", host, port)
             device = BirdDogDevice(
-                host=self._discovered_host,
-                port=self._discovered_port,
+                host=host,
+                port=port,
                 password=password,
                 session=session,
             )
@@ -487,7 +495,7 @@ class BirdDogConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 return self.async_create_entry(
                     title=title,
                     data={
-                        CONF_HOST: self._discovered_host,
+                        CONF_HOST: host,
                         CONF_PORT: device.port,
                         CONF_PASSWORD: password,
                         CONF_NAME: title,
@@ -511,7 +519,7 @@ class BirdDogConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             data_schema=schema,
             description_placeholders={
                 "name": self._discovered_name,
-                "host": self._discovered_host,
+                "host": host,
             },
             errors=errors,
         )
