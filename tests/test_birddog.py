@@ -353,6 +353,70 @@ class TestBirdDogConfigFlow(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["step_id"], "zeroconf_confirm")
 
 
+    async def test_auto_probe_port_8080_redirect(self):
+        """Test BirdDogDevice initialized with port 80 auto-corrects to 8080 when REST API is on 8080."""
+        device = BirdDogDevice(host="192.168.5.83", port=80, password="birddog")
+        with patch.object(device, "_async_probe_port_8080", AsyncMock(side_effect=lambda: setattr(device, "port", 8080) or True)):
+            with patch.object(device, "check_auth_required", AsyncMock(return_value=False)), \
+                 patch.object(device, "get_device_info", AsyncMock(return_value={"MyHostName": "NDI-FellHall-Cam"})):
+                self.assertTrue(await device.test_connection())
+                self.assertEqual(device.port, 8080)
+
+    async def test_birddog_mini_myhostname_and_dict_sources(self):
+        """Test BirdDog Mini MyHostName resolution and dictionary-keyed sources parsing."""
+        device = BirdDogDevice(host="192.168.5.83", port=8080)
+        mock_info = {
+            "manufacturer": "BirdDog",
+            "DeviceType": "BirdDog",
+            "Version": "1.0",
+            "MyHostName": "NDI-FellHall-Cam",
+        }
+        mock_list = {
+            "AVTEAMMACSTUDIO.LOCAL (Foyer)": "192.168.5.70:5962",
+            "BIRDDOG-4951C (HDMI)": "192.168.5.83:5962",
+        }
+
+        with patch.object(device, "_request", AsyncMock(return_value=mock_list)):
+            sources = await device.get_available_sources()
+            self.assertIn("AVTEAMMACSTUDIO.LOCAL (Foyer)", sources)
+            self.assertIn("BIRDDOG-4951C (HDMI)", sources)
+
+        with patch.object(device, "get_device_info", AsyncMock(return_value=mock_info)), \
+             patch.object(device, "get_current_source", AsyncMock(return_value={"sourceName": "RASSY (Test Pattern)"})), \
+             patch.object(device, "get_operation_mode", AsyncMock(return_value=None)), \
+             patch.object(device, "get_available_sources", AsyncMock(return_value=list(mock_list.keys()))), \
+             patch.object(device, "get_audio_mute", AsyncMock(return_value=False)), \
+             patch.object(device, "_request", AsyncMock(return_value={"ndiaudio": "unmute"})):
+            data = await device.fetch_all_data()
+            self.assertEqual(data["device_name"], "NDI-FellHall-Cam")
+            self.assertEqual(data["model"], "MINI")
+            self.assertEqual(data["current_source"], "RASSY (Test Pattern)")
+
+    async def test_birddog_mini_mute_from_enc_settings(self):
+        """Test audio mute status parsed from /enc-settings."""
+        device = BirdDogDevice(host="192.168.5.83", port=8080)
+        with patch.object(device, "_request", AsyncMock(return_value={"ndiaudio": "mute"})):
+            muted = await device.get_audio_mute()
+            self.assertTrue(muted)
+
+    async def test_zeroconf_sets_discovered_port_to_8080(self):
+        """Test Zeroconf _http._tcp on port 80 is normalized to DEFAULT_PORT (8080)."""
+        self.flow._async_current_entries = MagicMock(return_value=[])
+        self.flow._async_in_progress = MagicMock(return_value=[])
+
+        discovery_info = MagicMock()
+        discovery_info.name = "BirdDog-Mini-4951C._http._tcp.local."
+        discovery_info.hostname = "birddog-mini-4951c.local."
+        discovery_info.host = "192.168.5.83"
+        discovery_info.port = 80
+
+        result = await self.flow.async_step_zeroconf(discovery_info)
+        self.assertEqual(result["type"], "form")
+        self.assertEqual(result["step_id"], "zeroconf_confirm")
+        self.assertEqual(self.flow._discovered_port, 8080)
+
+
 if __name__ == "__main__":
     unittest.main()
+
 

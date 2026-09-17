@@ -1,5 +1,28 @@
 # Change Tracker: ha-birddog-ndi
 
+## [2026-09-17] v1.3.4 - BirdDog Mini Authentication Fix & Port 80-to-8080 Auto-Redirection
+- **Goal**: Fix persistent authentication failure on BirdDog Mini (firmware `BirdDog Mini NDI_4_V_3.6.3`, IP `192.168.5.83`) and expand telemetry and NDI source discovery.
+- **Root Cause Analysis**:
+  1. *Port 80 vs 8080 Separation*: Port 80 is exclusively the web management portal (Antmicro/BirdUI) protected by a web password. It returns an HTML `<form id="auth_form"` for every URL path and does not host the JSON REST API. Port 8080 is the actual BirdDog REST API (Express server), which is completely open and requires zero authentication.
+  2. *Zeroconf Port Trap*: Zeroconf discovers `_http._tcp.local.` on port 80. `config_flow.py` previously stored port 80, causing Home Assistant to probe the Web UI on port 80, misinterpreting the HTML login form as a protected REST API, attempting a failed `/login` POST, and raising `BirdDogAuthError`.
+  3. *Dictionary Source Mappings & MyHostName*: The Mini returns `"MyHostName"` instead of `"DeviceName"` in `/about`, and `/list` returns a dictionary whose keys are the stream names (`{"STREAM_NAME": "IP:PORT"}`) rather than an embedded `"sources"` list.
+- **Changes Implemented**:
+  - `birddog_api.py`:
+    - Added `_async_probe_port_8080()`: when initialized with port 80 (or when port 80 serves an HTML login form), automatically tests port 8080 and redirects `self.port` to 8080.
+    - Updated `check_auth_required()`: automatically upgrades to 8080, marks auth not required on open REST APIs.
+    - Updated `get_available_sources()`: extracts `list(data.keys())` when `/list` returns dictionary mappings.
+    - Updated `get_audio_mute()`: queries `/enc-settings` for `"ndiaudio"`.
+    - Updated `fetch_all_data()`: extracts `"MyHostName"` as device name and identifies model `MINI`.
+  - `config_flow.py`:
+    - In `async_step_zeroconf`: normalizes discovered port from 80 to `DEFAULT_PORT` (8080).
+    - In `async_step_user` and `async_step_zeroconf_confirm`: saves verified `device.port` in config entry data.
+  - `manifest.json`: Bumped version to `1.3.4`.
+  - `tests/test_birddog.py`: Added 4 unit tests covering auto-probe port upgrade, MyHostName resolution, dictionary source list parsing, and Zeroconf port normalization (22/22 tests passing).
+- **Validation**:
+  - 22 unit tests passing clean (0.067s).
+  - Python byte compilation and JSON validation clean.
+  - Live hardware probe against `192.168.5.83` confirmed port auto-correction, open auth detection, and full telemetry retrieval.
+
 ## [2026-09-16] v1.3.3 - Multi-Vector Zeroconf Deduplication & Dual-Service In-Progress Flow Suppression
 - **Goal**: Completely eradicate repeat Zeroconf auto-discovery for already configured BirdDog devices.
 - **Root Cause Analysis**:

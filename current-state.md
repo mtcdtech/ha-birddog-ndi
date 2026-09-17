@@ -1,10 +1,21 @@
 # Current State: ha-birddog-ndi
 
 ## Project Status
-- **Status**: Release v1.3.3 ready, tested, and validated.
+- **Status**: Release v1.3.4 tested and validated against live physical hardware (`192.168.5.83`).
 - **GitHub Repository**: `mtcdtech/ha-birddog-ndi`
 - **Domain**: `birddog_ndi`
-- **Version**: 1.3.3
+- **Version**: 1.3.4
+
+## Features in v1.3.4
+1. **Automatic Port 80-to-8080 REST API Redirection**:
+   - Zeroconf mDNS announces `_http._tcp.local.` on web port 80. The BirdDog REST API is hosted on port 8080.
+   - `config_flow.py` normalizes discovered port to `DEFAULT_PORT` (8080) and records verified `device.port` in config entries.
+   - `birddog_api.py` includes `_async_probe_port_8080()` which automatically upgrades client port from 80 to 8080 if an active REST API is detected on 8080, preventing web portal login forms from blocking API access.
+2. **BirdDog Mini Telemetry & Sources Expansion**:
+   - Supports `"MyHostName"` as device name in `/about` (resolves `NDI-FellHall-Cam` on Mini).
+   - In `get_available_sources()`, supports dictionary-keyed source mappings (`{"STREAM_NAME": "IP:PORT"}`) returned by BirdDog converters on `/list`.
+   - In `get_audio_mute()`, queries `/enc-settings` for `"ndiaudio"` status.
+   - Recognizes model `MINI` when `/enc-settings` or `/dec-settings` is active.
 
 ## Features in v1.3.3
 1. **Multi-Vector Zeroconf Deduplication**:
@@ -13,7 +24,6 @@
    - Hardware broadcasting both `_http._tcp.local.` and `_birddog._tcp.local.` no longer spawns duplicate discovery flows. Detects active flows and aborts secondary flows with `already_in_progress`.
 3. **Comprehensive Ghost Flow Purge**:
    - `_async_dismiss_matching_discovery_flows` purges all lingering discovery cards on Home Assistant startup and reload for any configured device.
-
 
 ## Features in v1.3.2
 1. **Official Brand Assets in `brand/` Directory**:

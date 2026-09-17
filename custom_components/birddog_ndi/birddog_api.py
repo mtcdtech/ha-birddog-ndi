@@ -83,8 +83,38 @@ class BirdDogDevice:
         if self._own_session and self._session and not self._session.closed:
             await self._session.close()
 
+    async def _async_probe_port_8080(self) -> bool:
+        """Check if port 8080 hosts an active BirdDog REST API when port 80 was configured."""
+        if self.port != 80:
+            return False
+        session = await self._get_session()
+        probe_url = f"http://{self.host}:{DEFAULT_PORT}{ENDPOINT_ABOUT}"
+        try:
+            async with session.get(probe_url, timeout=self.timeout) as resp:
+                if resp.status == 200:
+                    text = await resp.text()
+                    try:
+                        data = json.loads(text)
+                        if isinstance(data, dict):
+                            _LOGGER.info(
+                                "BirdDog device at %s has active REST API on port %s; auto-correcting from port 80",
+                                self.host,
+                                DEFAULT_PORT,
+                            )
+                            self.port = DEFAULT_PORT
+                            return True
+                    except Exception:
+                        pass
+        except (aiohttp.ClientError, asyncio.TimeoutError):
+            pass
+        return False
+
     async def check_auth_required(self) -> bool:
         """Determine adaptively if the device REST API requires authentication."""
+        # Auto-correct port 80 to 8080 if REST API is responsive on 8080
+        if self.port == 80:
+            await self._async_probe_port_8080()
+
         session = await self._get_session()
         probe_endpoints = [ENDPOINT_ABOUT, ENDPOINT_VERSION, ENDPOINT_OPERATION_MODE, ENDPOINT_CONNECT_TO]
 
@@ -102,6 +132,9 @@ class BirdDogDevice:
                     # Check if returned login HTML form
                     lower_text = text.lower()
                     if "<form" in lower_text and ("auth_password" in lower_text or 'type="password"' in lower_text):
+                        # If on port 80, the web portal is protected but port 8080 REST API might be open
+                        if self.port == 80 and await self._async_probe_port_8080():
+                            return await self.check_auth_required()
                         self._auth_required = True
                         return True
 
@@ -269,6 +302,10 @@ class BirdDogDevice:
 
     async def test_connection(self) -> bool:
         """Adaptively test if device is reachable and valid before adding."""
+        # 0. Check and auto-correct port 80 to 8080 if REST API is on 8080
+        if self.port == 80:
+            await self._async_probe_port_8080()
+
         # 1. Adaptively check if authentication is needed
         auth_needed = await self.check_auth_required()
 
@@ -350,10 +387,14 @@ class BirdDogDevice:
                         data.get("sources")
                         or data.get("sourceList")
                         or data.get("discoveredSources")
-                        or []
                     )
                     if isinstance(sources, list):
                         return [str(s) for s in sources if s]
+                    # On BirdDog Mini, /list returns a dict mapping stream names to IP:port
+                    # e.g. {"AVTEAMMACSTUDIO.LOCAL (Foyer)": "192.168.5.70:5962", ...}
+                    dict_sources = [str(k) for k in data.keys() if k and not str(k).startswith("_")]
+                    if dict_sources:
+                        return dict_sources
             except BirdDogAPIError:
                 continue
         return []
@@ -371,10 +412,12 @@ class BirdDogDevice:
 
     async def get_audio_mute(self) -> bool:
         """Fetch audio mute status."""
-        for ep in (ENDPOINT_AUDIO_GAIN, ENDPOINT_ANALOG_SETUP):
+        for ep in (ENDPOINT_AUDIO_GAIN, ENDPOINT_ANALOG_SETUP, "/enc-settings"):
             try:
                 data = await self._request("GET", ep)
                 if isinstance(data, dict):
+                    if "ndiaudio" in data:
+                        return str(data.get("ndiaudio")).lower() == "mute"
                     return bool(data.get("mute") or data.get("Mute") or data.get("muted"))
             except BirdDogAPIError:
                 pass
@@ -465,8 +508,14 @@ class BirdDogDevice:
         gateway = info.get("GateWay") or info.get("Gateway") or "Unknown"
 
         # Model and firmware resolution (detects MINI, FLEX, PLAY, PLAY PRO, STUDIO)
-        raw_model = str(info.get("Model") or info.get("model") or "").upper()
-        device_name = info.get("DeviceName") or info.get("HostName") or info.get("name") or "BirdDog Device"
+        raw_model = str(info.get("Model") or info.get("model") or info.get("DeviceType") or "").upper()
+        device_name = (
+            info.get("DeviceName")
+            or info.get("MyHostName")
+            or info.get("HostName")
+            or info.get("name")
+            or "BirdDog Device"
+        )
 
         if "MINI" in raw_model or "MINI" in device_name.upper():
             model = "MINI"
@@ -479,7 +528,15 @@ class BirdDogDevice:
         elif "STUDIO" in raw_model or "STUDIO" in device_name.upper():
             model = "STUDIO"
         else:
-            model = info.get("Model") or info.get("model") or "BirdDog Device"
+            # Check if converter with enc-settings / dec-settings (e.g. BirdDog Mini)
+            try:
+                enc_check = await self._request("GET", "/enc-settings")
+                if isinstance(enc_check, dict) and ("ndiaudio" in enc_check or "ndivideoq" in enc_check):
+                    model = "MINI"
+                else:
+                    model = info.get("Model") or info.get("model") or "BirdDog Device"
+            except Exception:
+                model = info.get("Model") or info.get("model") or "BirdDog Device"
 
         firmware = info.get("Version") or info.get("firmware") or info.get("version") or "Unknown"
 

@@ -363,12 +363,12 @@ class BirdDogConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             try:
                 await device.test_connection()
                 info = await device.get_device_info()
-                title = info.get("DeviceName") or name
+                title = info.get("DeviceName") or info.get("MyHostName") or name
                 return self.async_create_entry(
                     title=title,
                     data={
                         CONF_HOST: host,
-                        CONF_PORT: port,
+                        CONF_PORT: device.port,
                         CONF_PASSWORD: password,
                         CONF_NAME: title,
                     },
@@ -437,8 +437,10 @@ class BirdDogConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         await self.async_set_unique_id(canonical_uid)
         self._abort_if_unique_id_configured(updates={CONF_HOST: host})
 
+        # Zeroconf _http._tcp announces web server port (80), but BirdDog REST API is on 8080
+        effective_port = DEFAULT_PORT if port == 80 else port
         self._discovered_host = host
-        self._discovered_port = port
+        self._discovered_port = effective_port
         raw_name = discovery_info.name or "BirdDog Device"
         self._discovered_name = raw_name.split(".")[0].replace("_", " ").title()
 
@@ -476,13 +478,19 @@ class BirdDogConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
             try:
                 await device.test_connection()
+                info = await device.get_device_info()
+                title = (
+                    info.get("DeviceName")
+                    or info.get("MyHostName")
+                    or self._discovered_name
+                )
                 return self.async_create_entry(
-                    title=self._discovered_name,
+                    title=title,
                     data={
                         CONF_HOST: self._discovered_host,
-                        CONF_PORT: self._discovered_port,
+                        CONF_PORT: device.port,
                         CONF_PASSWORD: password,
-                        CONF_NAME: self._discovered_name,
+                        CONF_NAME: title,
                     },
                 )
             except BirdDogAuthError:
