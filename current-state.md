@@ -1,10 +1,19 @@
 # Current State: ha-birddog-ndi
 
 ## Project Status
-- **Status**: Release v1.3.2 ready, tested, and validated.
+- **Status**: Release v1.3.3 ready, tested, and validated.
 - **GitHub Repository**: `mtcdtech/ha-birddog-ndi`
 - **Domain**: `birddog_ndi`
-- **Version**: 1.3.2
+- **Version**: 1.3.3
+
+## Features in v1.3.3
+1. **Multi-Vector Zeroconf Deduplication**:
+   - Matches candidate devices across IP addresses (including IPv6 scope-stripped formats and full `ip_addresses` lists), hostnames, MAC address from TXT records, coordinator runtime data, and normalized 4-hex hardware suffixes (e.g. `94f8`).
+2. **Dual-Service In-Progress Flow Suppression**:
+   - Hardware broadcasting both `_http._tcp.local.` and `_birddog._tcp.local.` no longer spawns duplicate discovery flows. Detects active flows and aborts secondary flows with `already_in_progress`.
+3. **Comprehensive Ghost Flow Purge**:
+   - `_async_dismiss_matching_discovery_flows` purges all lingering discovery cards on Home Assistant startup and reload for any configured device.
+
 
 ## Features in v1.3.2
 1. **Official Brand Assets in `brand/` Directory**:

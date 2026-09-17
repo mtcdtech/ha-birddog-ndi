@@ -1,5 +1,24 @@
 # Change Tracker: ha-birddog-ndi
 
+## [2026-09-16] v1.3.3 - Multi-Vector Zeroconf Deduplication & Dual-Service In-Progress Flow Suppression
+- **Goal**: Completely eradicate repeat Zeroconf auto-discovery for already configured BirdDog devices.
+- **Root Cause Analysis**:
+  1. *Dual Service Advertisement*: BirdDog hardware broadcasts both `_http._tcp.local.` and `_birddog._tcp.local.`. Home Assistant spawned concurrent discovery flows for the same physical device. When the user configured one, the second flow remained orphaned in HA's active flow manager and was displayed as an unconfigured discovered device.
+  2. *IPv6 vs IPv4 / Scope Blindspots*: When Zeroconf packets arrived over IPv6 (link-local `fe80::...%scope`), candidate hosts did not match IPv4 addresses stored in `entry.data[CONF_HOST]`. Furthermore, `discovery_info.ip_addresses` (plural) was not being inspected, and unresolvable `.local` hostnames were not matched against existing titles or MAC addresses.
+  3. *Hardware Suffix & Name Matching*: Configured entries had titles like `BirdDog Play 94F8`, while Zeroconf announced `BirdDog-PLAY-94F8._http._tcp.local.`. Previous matching only checked exact host strings, missing normalized hardware names and 4-hex MAC suffixes.
+- **Changes Implemented**:
+  - `config_flow.py`:
+    - Implemented multi-vector matching (`_is_match`, `_extract_discovery_info`, `_extract_entry_info`): checks IP addresses (including IPv6 zone-strip), hostnames, MAC address from TXT properties, legacy unique_ids, coordinator runtime MAC, and normalized hardware suffixes (e.g. `94f8`).
+    - Added fast pass to evaluate direct matches in microseconds before performing any fallback DNS lookups.
+    - Added `already_in_progress` check scanning `self._async_in_progress()` to suppress secondary flows when a device broadcasts both `_http` and `_birddog` services.
+    - Set canonical `unique_id` to MAC or hostname or IP and called `_abort_if_unique_id_configured(updates={CONF_HOST: host})`.
+  - `__init__.py`:
+    - Updated `_async_dismiss_matching_discovery_flows` in `async_setup_entry` to scan all active discovery flows and abort any flow matching ANY configured device or coordinator data.
+  - `tests/test_birddog.py`:
+    - Added comprehensive unit tests covering IPv6 discovery with IPv4 in `ip_addresses`, hardware name suffix matching, in-progress flow deduplication, and genuine new device discovery (18/18 tests passing).
+- **Validation**:
+  - All 18 unit tests passed clean (0.032s).
+
 ## [2026-09-16] v1.3.2 - Official Brand Directory Integration & Automatic Discovery Dismissal
 - **Goal**: Fix missing icon/logo on Home Assistant device pages and eliminate lingering "Discovered" cards for already-configured BirdDog devices.
 - **Root Cause Analysis**:

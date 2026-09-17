@@ -1,8 +1,21 @@
 """Tests for BirdDog Play, Mini, Flex API client using unittest.IsolatedAsyncioTestCase."""
 
+import socket
 import sys
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+_real_getaddrinfo = socket.getaddrinfo
+
+def _fast_getaddrinfo(host, port, *args, **kwargs):
+    if str(host).endswith(".local"):
+        return []
+    try:
+        return _real_getaddrinfo(host, port, *args, **kwargs)
+    except Exception:
+        return []
+
+socket.getaddrinfo = _fast_getaddrinfo
 
 # Mock homeassistant modules so tests run in lightweight environments
 for mod in [
@@ -49,7 +62,7 @@ class MockConfigFlow:
     def async_create_entry(self, *, title, data):
         return {"type": "create_entry", "title": title, "data": data}
     def async_show_form(self, **kwargs):
-        return {"type": "form"}
+        return {"type": "form", **kwargs}
 
 sys.modules["homeassistant.const"].CONF_HOST = "host"
 sys.modules["homeassistant.const"].CONF_PORT = "port"
@@ -173,6 +186,7 @@ class TestBirdDogConfigFlow(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         """Set up mocked config flow instance."""
         self.flow = BirdDogConfigFlow()
+        self.flow.hass = MagicMock()
 
     async def test_zeroconf_aborts_when_already_configured_by_host(self):
         """Test zeroconf aborts immediately if host IP is already in configured entries."""
@@ -252,6 +266,93 @@ class TestBirdDogConfigFlow(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["type"], "abort")
         self.assertEqual(result["reason"], "already_configured")
 
+    async def test_zeroconf_aborts_when_discovered_via_ipv6_with_ipv4_in_ip_addresses(self):
+        """Test zeroconf aborts when mDNS arrives via IPv6 but IPv4 is in ip_addresses."""
+        existing_entry = MagicMock()
+        existing_entry.data = {"host": "192.168.1.50"}
+        existing_entry.unique_id = "192.168.1.50"
+        self.flow._async_current_entries = MagicMock(return_value=[existing_entry])
+
+        discovery_info = MagicMock()
+        discovery_info.name = "birddog-play-4a2b._http._tcp.local."
+        discovery_info.hostname = "birddog-play.local."
+        discovery_info.host = "fe80::20e:8eff:fe01:4a2b"
+        discovery_info.ip_address = "fe80::20e:8eff:fe01:4a2b"
+        discovery_info.ip_addresses = ["fe80::20e:8eff:fe01:4a2b", "192.168.1.50"]
+        discovery_info.port = 80
+
+        result = await self.flow.async_step_zeroconf(discovery_info)
+        self.assertEqual(result["type"], "abort")
+        self.assertEqual(result["reason"], "already_configured")
+
+    async def test_zeroconf_aborts_when_hardware_name_suffix_matches_entry_title(self):
+        """Test zeroconf aborts when hardware suffix (e.g. 94f8) matches entry title."""
+        existing_entry = MagicMock()
+        existing_entry.data = {"host": "10.0.0.12"}
+        existing_entry.title = "BirdDog Play 94f8"
+        existing_entry.unique_id = "bd_10.0.0.12"
+        self.flow._async_current_entries = MagicMock(return_value=[existing_entry])
+
+        discovery_info = MagicMock()
+        discovery_info.name = "BirdDog-PLAY-94F8._http._tcp.local."
+        discovery_info.hostname = "birddog-play-94f8.local."
+        discovery_info.host = "fe80::ba13:3eff:fe3b:79d4"
+        discovery_info.ip_address = "fe80::ba13:3eff:fe3b:79d4"
+        discovery_info.ip_addresses = ["fe80::ba13:3eff:fe3b:79d4"]
+        discovery_info.port = 80
+
+        result = await self.flow.async_step_zeroconf(discovery_info)
+        self.assertEqual(result["type"], "abort")
+        self.assertEqual(result["reason"], "already_configured")
+
+    async def test_zeroconf_aborts_when_matching_flow_already_in_progress(self):
+        """Test zeroconf aborts with already_in_progress if another discovery flow is open."""
+        self.flow._async_current_entries = MagicMock(return_value=[])
+        self.flow._async_in_progress = MagicMock(
+            return_value=[
+                {
+                    "flow_id": "other_flow_123",
+                    "context": {
+                        "source": "zeroconf",
+                        "title_placeholders": {
+                            "host": "192.168.1.60",
+                            "name": "BirdDog-PLAY-1234",
+                        },
+                    },
+                }
+            ]
+        )
+
+        discovery_info = MagicMock()
+        discovery_info.name = "BirdDog-PLAY-1234._birddog._tcp.local."
+        discovery_info.hostname = "birddog-play-1234.local."
+        discovery_info.host = "192.168.1.60"
+        discovery_info.port = 80
+
+        result = await self.flow.async_step_zeroconf(discovery_info)
+        self.assertEqual(result["type"], "abort")
+        self.assertEqual(result["reason"], "already_in_progress")
+
+    async def test_zeroconf_allows_new_different_device(self):
+        """Test zeroconf allows genuine new unconfigured device."""
+        existing_entry = MagicMock()
+        existing_entry.data = {"host": "192.168.1.50"}
+        existing_entry.title = "BirdDog-PLAY-94F8"
+        existing_entry.unique_id = "192.168.1.50"
+        self.flow._async_current_entries = MagicMock(return_value=[existing_entry])
+        self.flow._async_in_progress = MagicMock(return_value=[])
+
+        discovery_info = MagicMock()
+        discovery_info.name = "BirdDog-PLAY-5678._http._tcp.local."
+        discovery_info.hostname = "birddog-play-5678.local."
+        discovery_info.host = "192.168.1.51"
+        discovery_info.port = 80
+
+        result = await self.flow.async_step_zeroconf(discovery_info)
+        self.assertEqual(result["type"], "form")
+        self.assertEqual(result["step_id"], "zeroconf_confirm")
+
 
 if __name__ == "__main__":
     unittest.main()
+

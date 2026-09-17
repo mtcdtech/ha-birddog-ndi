@@ -52,21 +52,52 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
-    # Automatically dismiss any pending discovery flows for this device so ghost discovery cards disappear
-    if hasattr(hass.config_entries, "flow") and hasattr(hass.config_entries.flow, "async_progress_by_handler"):
-        for flow in hass.config_entries.flow.async_progress_by_handler(DOMAIN):
-            flow_context = flow.get("context", {})
-            flow_host = flow_context.get("title_placeholders", {}).get("host")
-            if flow_host:
-                clean_flow_host = str(flow_host).strip().lower().split(":")[0]
-                if clean_flow_host in (host.strip().lower(), host.strip().split(":")[0].lower()):
-                    try:
-                        hass.config_entries.flow.async_abort(flow["flow_id"])
-                    except Exception as err:
-                        _LOGGER.debug("Could not auto-abort flow %s: %s", flow.get("flow_id"), err)
+    # Automatically dismiss any pending discovery flows for this device or existing entries
+    _async_dismiss_matching_discovery_flows(hass)
 
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
     return True
+
+
+def _async_dismiss_matching_discovery_flows(hass: HomeAssistant) -> None:
+    """Automatically dismiss any pending discovery flows that match configured devices."""
+    if not (hasattr(hass.config_entries, "flow") and hasattr(hass.config_entries.flow, "async_progress_by_handler")):
+        return
+
+    from .config_flow import _extract_entry_info, _is_match
+
+    entries = hass.config_entries.async_entries(DOMAIN)
+    flows = hass.config_entries.flow.async_progress_by_handler(DOMAIN)
+    for flow in flows:
+        flow_id = flow.get("flow_id")
+        if not flow_id:
+            continue
+        flow_context = flow.get("context", {})
+        if flow_context.get("source") != "zeroconf":
+            continue
+
+        placeholders = flow_context.get("title_placeholders", {})
+        flow_host = str(placeholders.get("host", "")).strip().lower()
+        flow_name = str(placeholders.get("name", "")).strip().lower()
+
+        flow_disc = {
+            "ips": {flow_host.split("%")[0].split(":")[0]} if flow_host else set(),
+            "hosts": {flow_host, flow_host.split("%")[0].split(":")[0]} if flow_host else set(),
+            "hostname": flow_host if ".local" in flow_host else "",
+            "name": flow_name,
+            "mac": "",
+        }
+
+        # Check against all configured entries
+        for configured_entry in entries:
+            entry_info = _extract_entry_info(configured_entry, hass=hass)
+            if _is_match(flow_disc, entry_info):
+                try:
+                    hass.config_entries.flow.async_abort(flow_id)
+                    _LOGGER.info("Dismissed redundant discovery flow %s for %s", flow_id, flow_host or flow_name)
+                    break
+                except Exception as err:
+                    _LOGGER.debug("Could not auto-abort flow %s: %s", flow_id, err)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
