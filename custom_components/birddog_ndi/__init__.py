@@ -42,7 +42,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     )
     interval: int = entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)
 
-    # Automatically correct legacy or misconfigured port 80 to 8080 if REST API is responsive on 8080
+    # Automatically correct port misconfigurations between 80 and 8080
     if port == 80:
         test_dev = BirdDogDevice(host=host, port=80, password=password)
         if await test_dev._async_probe_port_8080():
@@ -52,6 +52,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 data={**entry.data, CONF_PORT: port},
             )
             _LOGGER.info("Auto-migrated BirdDog device %s config entry from port 80 to %s", host, port)
+        await test_dev.close()
+    elif port == DEFAULT_PORT:
+        test_dev = BirdDogDevice(host=host, port=DEFAULT_PORT, password=password)
+        try:
+            session = await test_dev._get_session()
+            async with session.get(f"http://{host}:{DEFAULT_PORT}/about", timeout=test_dev.timeout) as resp:
+                pass
+        except Exception:
+            if await test_dev._async_probe_port_80():
+                port = test_dev.port
+                hass.config_entries.async_update_entry(
+                    entry,
+                    data={**entry.data, CONF_PORT: port},
+                )
+                _LOGGER.info("Auto-migrated BirdDog device %s config entry from port 8080 to %s", host, port)
         await test_dev.close()
 
     device = BirdDogDevice(host=host, port=port, password=password)

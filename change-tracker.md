@@ -1,6 +1,32 @@
 # Change Tracker: ha-birddog-ndi
 
-## [2026-09-17] v1.3.7 - Fix Session Isolation for Numerical IPs, Auto Port Migration & Accurate Error Categorization
+## [2026-09-18] v1.3.8 - Fix Video Source Revert, Sensor Freezing & Bidirectional Port Adaptation
+- **Symptoms & Root Causes**:
+  1. *Video Source Reverting After Selection*:
+     - In `get_available_sources()`, the client called `ENDPOINT_REFRESH` (`/refresh`) every 15-second polling interval. On BirdDog hardware, triggering `/refresh` launches an active mDNS discovery scan on the network, which disrupts the hardware NDI receiver, drops active decodes, and causes the stream to revert.
+     - In `select.py`, selecting an option fired `set_source()` followed immediately by `async_request_refresh()`. The hardware takes 1–2 seconds to connect and establish the new NDI stream; querying `/connectTo` within milliseconds returned the previous source name, causing Home Assistant to immediately overwrite the selection with the old source.
+  2. *Sensor Freezing & Updates Halting*:
+     - In `coordinator.py`, `_async_update_data()` only caught `BirdDogConnectionError`. When any endpoint threw a `BirdDogAPIError` (e.g. 404 on unsupported endpoints or network disconnects), the exception was unhandled, aborting the coordinator update and freezing all sensor states in HA.
+  3. *Port 80 vs 8080 Unidirectional Fallback*:
+     - Previously, only port 80 -> 8080 probing existed. If a device was accessed on port 8080 but only answered on port 80, the probe failed completely and raised `cannot_connect`.
+- **Fixes Implemented**:
+  - `birddog_api.py`:
+    - Removed `/refresh` from `get_available_sources()`; only queries `ENDPOINT_LIST`.
+    - Added source caching in `self._available_sources` and dictionary IP:port mapping in `self._source_map`.
+    - Updated `set_source()` to include `connectToIp` and `port` when mapped.
+    - Added `_async_probe_port_80()` for bidirectional port fallback between 8080 and 80.
+    - Updated `get_audio_mute()` to cache `_working_audio_endpoint` and prevent repeated 404 calls.
+  - `select.py`:
+    - Added optimistic state update (`coordinator.data["current_source"] = option`) and immediate state write.
+    - Added a 2-second settling delay before requesting coordinator refresh from the hardware.
+  - `coordinator.py`:
+    - Wrapped both `BirdDogConnectionError` and `BirdDogAPIError` as well as unexpected exceptions in `UpdateFailed` so sensor polling stays resilient.
+  - `__init__.py`:
+    - Added bidirectional port auto-migration between 80 and 8080 on startup.
+  - `tests/test_birddog.py`:
+    - Added unit test coverage for source mapping payload, `/refresh` omission during polling, and coordinator error handling (27/27 tests passing).
+- **Validation**:
+  - Live tested against physical BirdDog Mini at `192.168.5.83` with password `1400Frankford`. Discovered all 7 NDI streams, tested `connectTo` switching, and verified stable telemetry.
 - **Root Causes Discovered**:
   1. *Numerical IP Cookie Dropping*: When `session = async_get_clientsession(self.hass)` was used, Home Assistant's default cookie jar operates with `unsafe=False`, which silently drops cookies for raw IP address targets (`192.168.5.83`).
   2. *Unreachable Devices Misreported as Auth Failures*: When network probes timed out or failed to connect, `check_auth_required()` previously defaulted to `self._auth_required = bool(self.password)`. Calling `login()` on an unreachable device subsequently failed and raised `BirdDogAuthError`, deceiving users into believing their password was rejected when the device was actually unreachable.

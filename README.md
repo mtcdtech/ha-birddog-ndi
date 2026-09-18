@@ -15,6 +15,17 @@ A custom Home Assistant integration to monitor and control **BirdDog NDI** devic
 
 ---
 
+## What's New in v1.3.8
+
+- 🛑 **Eliminated Stream Reverts & Decoder Dropouts**: Removed automatic `/refresh` discovery scans from routine 15-second coordinator polling. Calling `/refresh` was triggering active mDNS network discovery scans on BirdDog decoders, disrupting active NDI video decoding and causing selected video sources to revert back to default streams.
+- ⚡ **Optimistic Video Source Switching & Settling Delay**: `select.py` now updates state optimistically and provides a 2-second settling window before polling the hardware, preventing rapid race conditions where immediate queries returned the old stream name before the decoder finished switching.
+- 🛡️ **Robust Coordinator Error Handling**: Wrapped `BirdDogAPIError` and unexpected exceptions in `UpdateFailed` so transient HTTP errors or 404s on optional endpoints do not crash the polling cycle or freeze sensor telemetry.
+- 🌐 **Bidirectional Port Adaptation**: Added automatic fallback and migration between port 8080 (REST API) and port 80 (Web UI / BirdUI) in both directions during connection checks, config flow, and integration startup.
+- 🗺️ **Subnet-Aware NDI Stream Routing**: Automatically maps stream names to IP:port pairings from `/list` and includes `connectToIp` and `port` in `/connectTo` payloads for cross-subnet switching.
+- 🔇 **Audio Endpoint Caching**: Dynamically caches working audio endpoints to eliminate repeated 404 requests during polling cycles.
+
+---
+
 ## What's New in v1.3.7
 
 - 🛠️ **Dedicated Session & Numerical IP Cookie Jar Isolation**: Switched client architecture to dedicated sessions using `aiohttp.CookieJar(unsafe=True)`, ensuring session cookies for raw numerical IP addresses are never dropped by strict client policies.

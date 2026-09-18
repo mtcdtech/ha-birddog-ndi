@@ -1,10 +1,24 @@
 # Current State: ha-birddog-ndi
 
 ## Project Status
-- **Status**: Release v1.3.7 tested and validated against live physical hardware (`192.168.5.83`) with password authentication.
+- **Status**: Release v1.3.8 tested and validated against live physical hardware (`192.168.5.83`), fixing stream reversion, sensor freeze, and port adaptation.
 - **GitHub Repository**: `mtcdtech/ha-birddog-ndi`
 - **Domain**: `birddog_ndi`
-- **Version**: 1.3.7
+- **Version**: 1.3.8
+
+## Features in v1.3.8
+1. **Prevented Source Reversion & Decoder Dropouts**:
+   - Removed `/refresh` from routine `get_available_sources()` polling. Routine 15s `/refresh` calls triggered active NDI discovery scans on decoders, disrupting decoding and reverting active stream selections.
+2. **Optimistic Source Switching with Settling Delay**:
+   - In `select.py`, active state updates optimistically and introduces a 2-second settling delay before polling the hardware, avoiding race condition reads where `GET /connectTo` returned stale source names.
+3. **Robust Coordinator Polling Error Handling**:
+   - `_async_update_data()` in `coordinator.py` catches `BirdDogAPIError` and general exceptions, wrapping them in `UpdateFailed` so temporary HTTP errors or 404s do not crash the coordinator or freeze sensor entities.
+4. **Bidirectional Port Adaptation**:
+   - Extended port probing to automatically fall back and auto-migrate between port 8080 and port 80 in both directions.
+5. **Cross-Subnet IP:Port Stream Mapping**:
+   - Extracted IP:port from dictionary-keyed `/list` responses and provided `connectToIp` and `port` in `/connectTo` payloads.
+6. **Audio Endpoint Caching**:
+   - Dynamically caches working audio endpoints (`/enc-settings`, `/audiogain`, `/analogaudiosetup`) to prevent repeated 404 queries every polling interval.
 
 ## Features in v1.3.4
 1. **Automatic Port 80-to-8080 REST API Redirection**:

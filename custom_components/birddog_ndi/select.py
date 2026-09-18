@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from homeassistant.components.select import SelectEntity
@@ -80,6 +81,18 @@ class BirdDogSourceSelect(CoordinatorEntity[BirdDogDataUpdateCoordinator], Selec
         _LOGGER.info("User switching active NDI source to: %s", option)
         try:
             await self.coordinator.device.set_source(option)
+            if self.coordinator.data is not None:
+                self.coordinator.data["current_source"] = option
+                self.coordinator.data["is_decoding"] = option not in (
+                    "No Source",
+                    "Unknown",
+                    "None",
+                    "",
+                )
+            self.async_write_ha_state()
+
+            # Allow hardware time to connect and establish stream before polling verification
+            await asyncio.sleep(2)
             await self.coordinator.async_request_refresh()
         except Exception as err:
             _LOGGER.error("Failed to set NDI source to %s: %s", option, err)

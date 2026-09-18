@@ -9,7 +9,7 @@ from typing import Any
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from .birddog_api import BirdDogConnectionError, BirdDogDevice
+from .birddog_api import BirdDogAPIError, BirdDogConnectionError, BirdDogDevice
 from .const import DEFAULT_SCAN_INTERVAL, DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
@@ -37,5 +37,8 @@ class BirdDogDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Fetch data from BirdDog device."""
         try:
             return await self.device.fetch_all_data()
-        except BirdDogConnectionError as err:
+        except (BirdDogConnectionError, BirdDogAPIError) as err:
             raise UpdateFailed(f"Error communicating with BirdDog {self.device.host}: {err}") from err
+        except Exception as err:
+            _LOGGER.exception("Unexpected error updating BirdDog %s: %s", self.device.host, err)
+            raise UpdateFailed(f"Unexpected error communicating with BirdDog {self.device.host}: {err}") from err

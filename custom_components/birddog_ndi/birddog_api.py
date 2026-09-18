@@ -62,6 +62,9 @@ class BirdDogDevice:
         self._auth_required: bool | None = None
         self._authenticated = False
         self._session_token: str | None = None
+        self._available_sources: list[str] = []
+        self._source_map: dict[str, str] = {}
+        self._working_audio_endpoint: str | None = None
 
     @property
     def base_url(self) -> str:
@@ -108,6 +111,30 @@ class BirdDogDevice:
                         pass
         except (aiohttp.ClientError, asyncio.TimeoutError):
             pass
+        return False
+
+    async def _async_probe_port_80(self) -> bool:
+        """Check if port 80 hosts an active BirdDog service when port 8080 was unreachable."""
+        if self.port != DEFAULT_PORT:
+            return False
+        session = await self._get_session()
+        probe_urls = [
+            f"http://{self.host}:80{ENDPOINT_ABOUT}",
+            f"http://{self.host}:80{ENDPOINT_LOGIN}",
+            f"http://{self.host}:80/",
+        ]
+        for url in probe_urls:
+            try:
+                async with session.get(url, timeout=self.timeout, allow_redirects=False) as resp:
+                    if resp.status in (200, 301, 302, 303, 401, 403):
+                        _LOGGER.info(
+                            "BirdDog device at %s has active service on port 80; auto-correcting from port 8080",
+                            self.host,
+                        )
+                        self.port = 80
+                        return True
+            except (aiohttp.ClientError, asyncio.TimeoutError):
+                pass
         return False
 
     async def check_auth_required(self) -> bool:
@@ -164,6 +191,8 @@ class BirdDogDevice:
                 continue
 
         if not reachable:
+            if self.port == DEFAULT_PORT and await self._async_probe_port_80():
+                return await self.check_auth_required()
             raise BirdDogConnectionError(
                 f"Failed to connect to BirdDog device at {self.host}:{self.port}: {last_error}"
             )
@@ -181,10 +210,11 @@ class BirdDogDevice:
         session = await self._get_session()
         payload = {"auth_password": self.password}
 
-        # Try port 80 (BirdUI standard web port), then the configured port
-        ports_to_try = [80]
-        if self.port not in ports_to_try:
-            ports_to_try.append(self.port)
+        # Try configured port first, with fallback to port 80 or 8080
+        ports_to_try = [self.port]
+        fallback_port = 80 if self.port != 80 else DEFAULT_PORT
+        if fallback_port not in ports_to_try:
+            ports_to_try.append(fallback_port)
 
         for port in ports_to_try:
             url = f"http://{self.host}:{port}{ENDPOINT_LOGIN}"
@@ -409,33 +439,51 @@ class BirdDogDevice:
         return None
 
     async def get_available_sources(self) -> list[str]:
-        """Fetch list of discovered NDI sources if supported."""
-        for endpoint in (ENDPOINT_LIST, ENDPOINT_REFRESH):
-            try:
-                data = await self._request("GET", endpoint)
-                if isinstance(data, list):
-                    return [str(s) for s in data if s]
-                if isinstance(data, dict):
-                    sources = (
-                        data.get("sources")
-                        or data.get("sourceList")
-                        or data.get("discoveredSources")
-                    )
-                    if isinstance(sources, list):
-                        return [str(s) for s in sources if s]
-                    # On BirdDog Mini, /list returns a dict mapping stream names to IP:port
-                    # e.g. {"AVTEAMMACSTUDIO.LOCAL (Foyer)": "192.168.5.70:5962", ...}
-                    dict_sources = [str(k) for k in data.keys() if k and not str(k).startswith("_")]
-                    if dict_sources:
-                        return dict_sources
-            except BirdDogAPIError:
-                continue
-        return []
+        """Fetch list of discovered NDI sources if supported without disruptive refresh scans."""
+        try:
+            data = await self._request("GET", ENDPOINT_LIST)
+            if isinstance(data, list):
+                sources = [str(s) for s in data if s]
+                self._available_sources = sources
+                return sources
+            if isinstance(data, dict):
+                raw_sources = (
+                    data.get("sources")
+                    or data.get("sourceList")
+                    or data.get("discoveredSources")
+                )
+                if isinstance(raw_sources, list):
+                    sources = [str(s) for s in raw_sources if s]
+                    self._available_sources = sources
+                    return sources
+                # On BirdDog Mini / converters, /list returns a dict mapping stream names to IP:port
+                # e.g. {"AVTEAMMACSTUDIO.LOCAL (Foyer)": "192.168.5.70:5962", ...}
+                dict_sources: list[str] = []
+                source_map: dict[str, str] = {}
+                for k, v in data.items():
+                    if k and not str(k).startswith("_"):
+                        dict_sources.append(str(k))
+                        if isinstance(v, str) and v:
+                            source_map[str(k)] = v
+                if dict_sources:
+                    self._source_map.update(source_map)
+                    self._available_sources = dict_sources
+                    return dict_sources
+        except BirdDogAPIError as err:
+            _LOGGER.debug("Failed to retrieve NDI sources from %s: %s", ENDPOINT_LIST, err)
+
+        return self._available_sources or []
 
     async def set_source(self, source_name: str) -> bool:
         """Switch NDI decode stream to source_name via POST /connectTo."""
         _LOGGER.info("Switching BirdDog %s NDI source to: %s", self.host, source_name)
-        payload = {"sourceName": source_name}
+        payload: dict[str, Any] = {"sourceName": source_name}
+        if source_name in self._source_map:
+            addr = self._source_map[source_name]
+            if ":" in addr:
+                ip, port_str = addr.split(":", 1)
+                payload["connectToIp"] = ip
+                payload["port"] = port_str
         try:
             await self._request("POST", ENDPOINT_CONNECT_TO, json_data=payload)
             return True
@@ -445,10 +493,16 @@ class BirdDogDevice:
 
     async def get_audio_mute(self) -> bool:
         """Fetch audio mute status."""
-        for ep in (ENDPOINT_AUDIO_GAIN, ENDPOINT_ANALOG_SETUP, "/enc-settings"):
+        endpoints = [ENDPOINT_AUDIO_GAIN, ENDPOINT_ANALOG_SETUP, "/enc-settings"]
+        if self._working_audio_endpoint and self._working_audio_endpoint in endpoints:
+            endpoints.remove(self._working_audio_endpoint)
+            endpoints.insert(0, self._working_audio_endpoint)
+
+        for ep in endpoints:
             try:
                 data = await self._request("GET", ep)
                 if isinstance(data, dict):
+                    self._working_audio_endpoint = ep
                     if "ndiaudio" in data:
                         return str(data.get("ndiaudio")).lower() == "mute"
                     return bool(data.get("mute") or data.get("Mute") or data.get("muted"))

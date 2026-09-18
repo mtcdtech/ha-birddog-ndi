@@ -43,6 +43,24 @@ for mod in [
 ]:
     sys.modules.setdefault(mod, MagicMock())
 
+class MockUpdateFailed(Exception):
+    """Mock UpdateFailed exception."""
+
+class MockDataUpdateCoordinator:
+    """Mock DataUpdateCoordinator class."""
+    def __init_subclass__(cls, **kwargs):
+        pass
+    def __class_getitem__(cls, item):
+        return cls
+    def __init__(self, hass, logger, name=None, update_interval=None):
+        self.hass = hass
+        self.logger = logger
+        self.name = name
+        self.update_interval = update_interval
+
+sys.modules["homeassistant.helpers.update_coordinator"].UpdateFailed = MockUpdateFailed
+sys.modules["homeassistant.helpers.update_coordinator"].DataUpdateCoordinator = MockDataUpdateCoordinator
+
 class MockConfigFlow:
     """Mock base class for ConfigFlow."""
     def __init_subclass__(cls, **kwargs):
@@ -440,6 +458,49 @@ class TestBirdDogConfigFlow(unittest.IsolatedAsyncioTestCase):
             data = await device.fetch_all_data()
             self.assertEqual(device.port, 8080)
             self.assertEqual(data["device_name"], "NDI-Cam")
+
+
+    async def test_set_source_includes_ip_and_port_from_source_map(self):
+        """Test set_source includes connectToIp and port when mapped from /list."""
+        device = BirdDogDevice(host="192.168.5.83", port=8080)
+        device._source_map = {
+            "BIRDDOG-4951C (HDMI)": "192.168.5.83:5962"
+        }
+        with patch.object(device, "_request", AsyncMock(return_value={})) as mock_req:
+            await device.set_source("BIRDDOG-4951C (HDMI)")
+            mock_req.assert_called_once_with(
+                "POST",
+                "/connectTo",
+                json_data={
+                    "sourceName": "BIRDDOG-4951C (HDMI)",
+                    "connectToIp": "192.168.5.83",
+                    "port": "5962",
+                },
+            )
+
+    async def test_get_available_sources_caches_and_does_not_call_refresh(self):
+        """Test get_available_sources caches sources and never calls /refresh in polling."""
+        device = BirdDogDevice(host="192.168.5.83", port=8080)
+        mock_list = {
+            "AVTEAMMACSTUDIO.LOCAL (Foyer)": "192.168.5.70:5962",
+            "BIRDDOG-4951C (HDMI)": "192.168.5.83:5962",
+        }
+        with patch.object(device, "_request", AsyncMock(return_value=mock_list)) as mock_req:
+            sources = await device.get_available_sources()
+            self.assertEqual(len(sources), 2)
+            self.assertEqual(device._source_map["AVTEAMMACSTUDIO.LOCAL (Foyer)"], "192.168.5.70:5962")
+            mock_req.assert_called_once_with("GET", "/list")
+
+    async def test_coordinator_handles_api_error_as_update_failed(self):
+        """Test BirdDogDataUpdateCoordinator wraps BirdDogAPIError in UpdateFailed."""
+        from custom_components.birddog_ndi.coordinator import BirdDogDataUpdateCoordinator
+        from homeassistant.helpers.update_coordinator import UpdateFailed
+
+        device = BirdDogDevice(host="192.168.5.83", port=8080)
+        coordinator = BirdDogDataUpdateCoordinator(MagicMock(), device)
+        with patch.object(device, "fetch_all_data", AsyncMock(side_effect=BirdDogAPIError("404 endpoint"))):
+            with self.assertRaises(UpdateFailed):
+                await coordinator._async_update_data()
 
 
 if __name__ == "__main__":
