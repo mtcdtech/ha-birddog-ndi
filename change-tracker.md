@@ -1,5 +1,34 @@
 # Change Tracker: ha-birddog-ndi
 
+## [2026-09-18] v1.3.9 - Real-Time Source Status & Accurate Decoding Telemetry via WebSocket (Port 6790)
+- **Symptoms & User Issue**:
+  - User reported: "the statuses are still not accurate - the ndu nursery at 192.168.5.63 shows running but the admin page shows initializing".
+  - Additionally, dashboard inspection showed `NDI Foyer` (`192.168.5.61`) and `NDI Fell. Hall` (`192.168.5.62`) displaying `Current NDI Source: No Source` and `Video Source: unknown`.
+- **Root Causes Discovered**:
+  1. *Binary Sensor "Decoding Active" Hardcoded to Stream Name Selection*:
+     - In `birddog_api.py`, `is_decoding` was previously computed as `current_source not in ("No Source", "Unknown", "None", "")`. When a stream like `AVTEAMMACSTUDIO (Nursery-NDI)` was selected in configuration, `is_decoding` evaluated to `True`, causing Home Assistant's `BinarySensorDeviceClass.RUNNING` to display `Running` even though the hardware decoder was actually stuck in `Initializing` state because the source transmitter on `192.168.5.78:5961` was offline.
+  2. *Live Hardware Telemetry on WebSocket Port 6790*:
+     - Direct hardware inspection revealed that BirdDog devices run an unauthenticated WebSocket service on port 6790 (`ws://<host>:6790`) that responds in ~45ms with exact live telemetry:
+       `{"src_stat": "Initializing", "vid_str_name": "AVTEAMMACSTUDIO (Nursery-NDI)", "vid_res": "0x0", "vid_fr": "0.00", "avbr": "N/AMbps", "net_speed": "1000mbps", "net_band_perc": "1", "sys_info_perc": "8", "aud_stat": "Mute", "dashboard_vid_status": "Active"}`.
+     - When decoding is actively rendering, `src_stat` is `Connected`/`Online` and `vid_res` is a non-zero resolution (e.g. `1920x1080`).
+  3. *Empty `/connectTo` Responses on Foyer and Fell Hall*:
+     - `GET /connectTo` returned empty `{}` on `.61` and `.62`, but `/about` Format headers and WebSocket `vid_str_name` held the active configured source names (`AVTEAMMACSTUDIO (Foyer-NDI)` / `(Nursery-NDI)`).
+- **Fixes Implemented**:
+  - `birddog_api.py`:
+    - Added `get_realtime_telemetry()` to query `ws://{self.host}:6790` with 0.5s timeout.
+    - Updated `is_decoding` logic: evaluates `src_stat` and `vid_res` (only `True` when status is active/connected/online and resolution is non-zero).
+    - Added fallback for `current_source` to `vid_str_name` and `/about` Format string.
+    - Added telemetry metrics extraction (`video_resolution`, `video_framerate`, `bitrate`, `network_bandwidth_percent`).
+    - Added dual-dispatch in `set_source()` to submit to `/connectTo` and `/videoset`.
+  - `sensor.py`:
+    - Added `source_status` sensor entity (`mdi:signal-variant`) displaying live stream state (`Initializing`, `Connected`, `Online`, `No Source`) with video resolution and framerate attributes.
+  - `select.py`:
+    - Updated optimistic state to set `source_status = "Initializing"` and `is_decoding = False` immediately upon selecting an option.
+  - `tests/test_birddog.py`:
+    - Added 3 new unit tests covering decoding status accuracy and fallback source resolution (30/30 tests passing).
+- **Validation**:
+  - Tested against physical live devices: `192.168.5.61`, `192.168.5.62`, `192.168.5.63`, `192.168.5.83`.
+
 ## [2026-09-18] v1.3.8 - Fix Video Source Revert, Sensor Freezing & Bidirectional Port Adaptation
 - **Symptoms & Root Causes**:
   1. *Video Source Reverting After Selection*:

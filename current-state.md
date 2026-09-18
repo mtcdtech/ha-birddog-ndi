@@ -1,10 +1,22 @@
 # Current State: ha-birddog-ndi
 
 ## Project Status
-- **Status**: Release v1.3.8 tested and validated against live physical hardware (`192.168.5.83`), fixing stream reversion, sensor freeze, and port adaptation.
+- **Status**: Release v1.3.9 tested and validated against live physical hardware (`192.168.5.61`, `192.168.5.62`, `192.168.5.63`, `192.168.5.83`), fixing source status accuracy, decoding active detection, and fallback source resolution.
 - **GitHub Repository**: `mtcdtech/ha-birddog-ndi`
 - **Domain**: `birddog_ndi`
-- **Version**: 1.3.8
+- **Version**: 1.3.9
+
+## Features in v1.3.9
+1. **Real-Time WebSocket Telemetry (Port 6790)**:
+   - Queries `ws://<host>:6790` directly for real-time hardware status metrics: `src_stat`, `vid_str_name`, `vid_res`, `vid_fr`, and bandwidth stats.
+2. **True Decoding Detection**:
+   - `binary_sensor.<name>_decoding_active` no longer relies solely on source name selection. It evaluates `src_stat` and `vid_res`: when status is `Initializing` or resolution is `0x0`, it accurately reports `Not running` (Off).
+3. **Dedicated Source Status Sensor**:
+   - Added `sensor.<name>_source_status` displaying exact hardware stream state (`Initializing`, `Connected`, `Online`, `No Source`) with video resolution and framerate attributes.
+4. **Resilient Source Resolution Fallback**:
+   - Resolved `NDI Foyer` and `NDI Fell. Hall` displaying `No Source` by falling back to live telemetry stream name (`vid_str_name`) and `/about` Format headers when `/connectTo` returns empty JSON.
+5. **Dual-Dispatch Source Switching**:
+   - Submits source change requests concurrently to both `/connectTo` REST API and `/videoset` HTML form parameters.
 
 ## Features in v1.3.8
 1. **Prevented Source Reversion & Decoder Dropouts**:

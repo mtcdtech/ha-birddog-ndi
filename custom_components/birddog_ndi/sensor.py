@@ -24,6 +24,11 @@ SENSOR_TYPES: tuple[SensorEntityDescription, ...] = (
         icon="mdi:check-network",
     ),
     SensorEntityDescription(
+        key="source_status",
+        name="Source Status",
+        icon="mdi:signal-variant",
+    ),
+    SensorEntityDescription(
         key="current_source",
         name="Current NDI Source",
         icon="mdi:video-input-antenna",
@@ -116,6 +121,8 @@ class BirdDogSensor(CoordinatorEntity[BirdDogDataUpdateCoordinator], SensorEntit
 
         if key == "status":
             return "Online" if data.get("online") else "Offline"
+        if key == "source_status":
+            return data.get("source_status", "Unknown")
         if key == "current_source":
             return data.get("current_source")
         if key == "operation_mode":
@@ -139,6 +146,18 @@ class BirdDogSensor(CoordinatorEntity[BirdDogDataUpdateCoordinator], SensorEntit
             return {}
 
         data = self.coordinator.data
+        if self.entity_description.key == "source_status":
+            attrs = {}
+            for attr_key in (
+                "video_resolution",
+                "video_framerate",
+                "bitrate",
+                "network_bandwidth_percent",
+                "cpu_percent",
+            ):
+                if data.get(attr_key) is not None:
+                    attrs[attr_key] = data[attr_key]
+            return attrs
         if self.entity_description.key == "current_source":
             return {
                 "is_decoding": data.get("is_decoding", False),

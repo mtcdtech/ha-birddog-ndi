@@ -15,6 +15,16 @@ A custom Home Assistant integration to monitor and control **BirdDog NDI** devic
 
 ---
 
+## What's New in v1.3.9
+
+- 📡 **Real-Time Hardware Source Status & Telemetry via WebSocket (Port 6790)**: Integrated native telemetry querying against BirdDog's WebSocket server on port 6790 (`ws://<host>:6790`), capturing live source status (`src_stat`), video resolution (`vid_res`), framerate (`vid_fr`), and network bandwidth.
+- 🎯 **Accurate "Decoding Active" Detection**: Fixed `binary_sensor.<name>_decoding_active` which previously reported `Running` whenever a source was selected in settings, regardless of actual stream state. The sensor now accurately reflects live decoding: it reports `Not running` when the decoder is in `Initializing`, `No Signal`, or `Disconnected` state (0x0 resolution), and `Running` only when a valid stream is actively rendering.
+- 🏷️ **New "Source Status" Sensor (`sensor.<name>_source_status`)**: Added a dedicated sensor matching the BirdDog web admin status header (`Initializing`, `Connected`, `Online`, `No Source`), with rich attributes for active video resolution, framerate, and network bitrate.
+- 🔄 **Comprehensive Source Resolution Fallback**: Fixed `NDI Foyer` and `NDI Fell. Hall` displaying `No Source` by falling back to live WebSocket stream names (`vid_str_name`) and `/about` Format headers when `/connectTo` returns empty payloads.
+- ⚡ **Dual-Path Source Switching (`/connectTo` & `/videoset`)**: `set_source()` now submits stream switching commands simultaneously across the REST API (`/connectTo`) and BirdDog web portal form submission (`/videoset`), ensuring instant switching across all firmware revisions.
+
+---
+
 ## What's New in v1.3.8
 
 - 🛑 **Eliminated Stream Reverts & Decoder Dropouts**: Removed automatic `/refresh` discovery scans from routine 15-second coordinator polling. Calling `/refresh` was triggering active mDNS network discovery scans on BirdDog decoders, disrupting active NDI video decoding and causing selected video sources to revert back to default streams.

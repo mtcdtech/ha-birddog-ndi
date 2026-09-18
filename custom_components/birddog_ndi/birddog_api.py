@@ -475,7 +475,7 @@ class BirdDogDevice:
         return self._available_sources or []
 
     async def set_source(self, source_name: str) -> bool:
-        """Switch NDI decode stream to source_name via POST /connectTo."""
+        """Switch NDI decode stream to source_name via POST /connectTo and web portal fallback."""
         _LOGGER.info("Switching BirdDog %s NDI source to: %s", self.host, source_name)
         payload: dict[str, Any] = {"sourceName": source_name}
         if source_name in self._source_map:
@@ -484,12 +484,51 @@ class BirdDogDevice:
                 ip, port_str = addr.split(":", 1)
                 payload["connectToIp"] = ip
                 payload["port"] = port_str
+
+        # 1. Standard BirdDog REST API
+        rest_ok = False
         try:
             await self._request("POST", ENDPOINT_CONNECT_TO, json_data=payload)
-            return True
+            rest_ok = True
         except BirdDogAPIError as err:
-            _LOGGER.error("Failed to set NDI source to %s: %s", source_name, err)
-            raise
+            _LOGGER.debug("POST %s failed on %s: %s", ENDPOINT_CONNECT_TO, self.host, err)
+
+        # 2. BirdUI Web Management Portal (e.g. BirdDog PLAY dec1_form on /videoset)
+        if source_name in self._source_map:
+            addr = self._source_map[source_name]
+            try:
+                session = await self._get_session()
+                headers = {}
+                if self._session_token:
+                    headers["Cookie"] = f"BirdDogSession={self._session_token}"
+                post_data = {
+                    "dec0_source_name": source_name,
+                    "dec0_source_ip": addr,
+                    "dec0_fo_source_name": source_name,
+                    "dec0_fo_source_ip": addr,
+                    "dec0_change_source_button": "dec0_change_source",
+                }
+                for p in (80, self.port):
+                    url = f"http://{self.host}:{p}/videoset"
+                    try:
+                        async with session.post(
+                            url,
+                            data=post_data,
+                            headers=headers,
+                            timeout=aiohttp.ClientTimeout(total=2),
+                            allow_redirects=False,
+                        ) as resp:
+                            if resp.status in (200, 302, 303):
+                                break
+                    except Exception:
+                        pass
+            except Exception as err:
+                _LOGGER.debug("Web portal switch fallback on %s: %s", self.host, err)
+
+        if not rest_ok and source_name not in self._source_map:
+            raise BirdDogAPIError(f"Failed to set source to {source_name}")
+
+        return True
 
     async def get_audio_mute(self) -> bool:
         """Fetch audio mute status."""
@@ -549,6 +588,22 @@ class BirdDogDevice:
         except BirdDogAPIError:
             return False
 
+    async def get_realtime_telemetry(self) -> dict[str, Any]:
+        """Fetch live hardware telemetry from BirdDog WebSocket (port 6790) if available."""
+        session = await self._get_session()
+        ws_url = f"ws://{self.host}:6790"
+        try:
+            ws_timeout = aiohttp.ClientWSTimeout(ws_close=0.5) if hasattr(aiohttp, "ClientWSTimeout") else 0.5
+            async with session.ws_connect(ws_url, timeout=ws_timeout) as ws:
+                msg = await asyncio.wait_for(ws.receive(), timeout=0.5)
+                if msg.type == aiohttp.WSMsgType.TEXT and msg.data:
+                    data = json.loads(msg.data)
+                    if isinstance(data, dict):
+                        return data
+        except Exception as err:
+            _LOGGER.debug("Real-time telemetry query to %s: %s", ws_url, err)
+        return {}
+
     async def fetch_all_data(self) -> dict[str, Any]:
         """Fetch all device states in a single polling cycle."""
         # Auto-correct port 80 to 8080 if REST API is responsive on 8080
@@ -562,8 +617,9 @@ class BirdDogDevice:
         source_data = await self.get_current_source()
         op_mode = await self.get_operation_mode()
         mute_state = await self.get_audio_mute()
+        rt = await self.get_realtime_telemetry()
 
-        # Resilient source resolution
+        # Resilient source resolution across /connectTo, WebSocket telemetry, and /about Format
         current_source = (
             source_data.get("sourceName")
             or source_data.get("source")
@@ -573,13 +629,28 @@ class BirdDogDevice:
                 else None
             )
             or source_data.get("sourceStreamName")
+            or rt.get("vid_str_name")
+            or (info.get("Format") if info.get("Format") and info.get("Format") != "None" else None)
             or "No Source"
         )
+        if current_source in ("None", ""):
+            current_source = "No Source"
 
         # Discovered sources
         sources = await self.get_available_sources()
         if current_source and current_source != "No Source" and current_source not in sources:
             sources.insert(0, current_source)
+
+        # Source Status resolution
+        raw_src_stat = rt.get("src_stat")
+        if raw_src_stat and raw_src_stat != "N/A":
+            source_status = str(raw_src_stat).capitalize()
+        elif rt.get("dashboard_vid_status") == "active":
+            source_status = "Online"
+        elif current_source not in ("No Source", "Unknown", "None", ""):
+            source_status = "Configured"
+        else:
+            source_status = "No Source"
 
         # MAC Address extraction
         mac_address = (
@@ -634,8 +705,20 @@ class BirdDogDevice:
         # Operating mode (Decode vs Encode)
         final_op_mode = op_mode or ("Decode" if "PLAY" in model else "Encode")
 
-        # Decoding active state
-        is_decoding = current_source not in ("No Source", "Unknown", "None", "")
+        # Accurate decoding active state: must have positive signal, not initializing/no signal
+        is_decoding = False
+        if rt:
+            src_stat_lower = str(rt.get("src_stat", "")).lower()
+            vid_res = str(rt.get("vid_res", "0x0"))
+            if src_stat_lower in ("connected", "active", "running", "decoding") or (vid_res not in ("0x0", "", "none") and vid_res != "0x0"):
+                is_decoding = True
+            elif src_stat_lower in ("initializing", "connecting", "no signal", "disconnected", "error", "none", ""):
+                is_decoding = False
+            elif rt.get("dashboard_vid_status") == "active" and final_op_mode != "Decode":
+                # Encoder active state (e.g. Mini)
+                is_decoding = False
+        else:
+            is_decoding = current_source not in ("No Source", "Unknown", "None", "")
 
         return {
             "online": True,
@@ -653,6 +736,12 @@ class BirdDogDevice:
             "gateway": gateway,
             "current_source": current_source,
             "available_sources": sources,
+            "source_status": source_status,
+            "video_resolution": rt.get("vid_res") or rt.get("dashboard_vid_input") or None,
+            "video_framerate": rt.get("vid_fr") or None,
+            "bitrate": rt.get("avbr") or None,
+            "network_bandwidth_percent": rt.get("net_band_perc") or None,
+            "cpu_percent": rt.get("sys_info_perc") or None,
             "audio_muted": mute_state,
             "is_decoding": is_decoding,
         }

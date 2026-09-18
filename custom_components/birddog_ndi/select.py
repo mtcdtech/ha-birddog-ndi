@@ -83,12 +83,9 @@ class BirdDogSourceSelect(CoordinatorEntity[BirdDogDataUpdateCoordinator], Selec
             await self.coordinator.device.set_source(option)
             if self.coordinator.data is not None:
                 self.coordinator.data["current_source"] = option
-                self.coordinator.data["is_decoding"] = option not in (
-                    "No Source",
-                    "Unknown",
-                    "None",
-                    "",
-                )
+                is_no_source = option in ("No Source", "Unknown", "None", "")
+                self.coordinator.data["source_status"] = "No Source" if is_no_source else "Initializing"
+                self.coordinator.data["is_decoding"] = False
             self.async_write_ha_state()
 
             # Allow hardware time to connect and establish stream before polling verification

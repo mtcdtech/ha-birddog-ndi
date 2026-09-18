@@ -159,7 +159,8 @@ class TestBirdDogDevice(unittest.IsolatedAsyncioTestCase):
              patch.object(device, "get_current_source", AsyncMock(return_value={"sourceName": "HDMI-Out"})), \
              patch.object(device, "get_operation_mode", AsyncMock(return_value="Decode")), \
              patch.object(device, "get_available_sources", AsyncMock(return_value=[])), \
-             patch.object(device, "get_audio_mute", AsyncMock(return_value=False)):
+             patch.object(device, "get_audio_mute", AsyncMock(return_value=False)), \
+             patch.object(device, "get_realtime_telemetry", AsyncMock(return_value={})):
             data = await device.fetch_all_data()
             self.assertEqual(data["model"], "MINI")
             self.assertEqual(data["operation_mode"], "Decode")
@@ -406,6 +407,7 @@ class TestBirdDogConfigFlow(unittest.IsolatedAsyncioTestCase):
              patch.object(device, "get_operation_mode", AsyncMock(return_value=None)), \
              patch.object(device, "get_available_sources", AsyncMock(return_value=list(mock_list.keys()))), \
              patch.object(device, "get_audio_mute", AsyncMock(return_value=False)), \
+             patch.object(device, "get_realtime_telemetry", AsyncMock(return_value={})), \
              patch.object(device, "_request", AsyncMock(return_value={"ndiaudio": "unmute"})):
             data = await device.fetch_all_data()
             self.assertEqual(data["device_name"], "NDI-FellHall-Cam")
@@ -454,10 +456,66 @@ class TestBirdDogConfigFlow(unittest.IsolatedAsyncioTestCase):
              patch.object(device, "get_current_source", AsyncMock(return_value={"sourceName": "Cam 1"})), \
              patch.object(device, "get_operation_mode", AsyncMock(return_value=None)), \
              patch.object(device, "get_available_sources", AsyncMock(return_value=["Cam 1"])), \
-             patch.object(device, "get_audio_mute", AsyncMock(return_value=False)):
+             patch.object(device, "get_audio_mute", AsyncMock(return_value=False)), \
+             patch.object(device, "get_realtime_telemetry", AsyncMock(return_value={})):
             data = await device.fetch_all_data()
             self.assertEqual(device.port, 8080)
             self.assertEqual(data["device_name"], "NDI-Cam")
+
+    async def test_decoding_active_false_when_initializing(self):
+        """Test is_decoding is False and source_status is Initializing when device is still initializing."""
+        device = BirdDogDevice(host="192.168.5.63", port=8080)
+        mock_rt = {
+            "src_stat": "Initializing",
+            "vid_str_name": "AVTEAMMACSTUDIO (Nursery-NDI)",
+            "vid_res": "0x0",
+            "vid_fr": "0.00",
+        }
+        with patch.object(device, "get_device_info", AsyncMock(return_value={"DeviceName": "ndi-nursery", "Model": "PLAY"})), \
+             patch.object(device, "get_current_source", AsyncMock(return_value={"sourceName": "AVTEAMMACSTUDIO (Nursery-NDI)"})), \
+             patch.object(device, "get_operation_mode", AsyncMock(return_value="Decode")), \
+             patch.object(device, "get_available_sources", AsyncMock(return_value=["AVTEAMMACSTUDIO (Nursery-NDI)"])), \
+             patch.object(device, "get_audio_mute", AsyncMock(return_value=False)), \
+             patch.object(device, "get_realtime_telemetry", AsyncMock(return_value=mock_rt)):
+            data = await device.fetch_all_data()
+            self.assertEqual(data["source_status"], "Initializing")
+            self.assertFalse(data["is_decoding"])
+            self.assertEqual(data["current_source"], "AVTEAMMACSTUDIO (Nursery-NDI)")
+
+    async def test_decoding_active_true_when_connected_with_resolution(self):
+        """Test is_decoding is True when device is actively decoding video frames."""
+        device = BirdDogDevice(host="192.168.5.63", port=8080)
+        mock_rt = {
+            "src_stat": "Connected",
+            "vid_str_name": "AVTEAMMACSTUDIO (Nursery-NDI)",
+            "vid_res": "1920x1080",
+            "vid_fr": "59.94",
+        }
+        with patch.object(device, "get_device_info", AsyncMock(return_value={"DeviceName": "ndi-nursery", "Model": "PLAY"})), \
+             patch.object(device, "get_current_source", AsyncMock(return_value={"sourceName": "AVTEAMMACSTUDIO (Nursery-NDI)"})), \
+             patch.object(device, "get_operation_mode", AsyncMock(return_value="Decode")), \
+             patch.object(device, "get_available_sources", AsyncMock(return_value=["AVTEAMMACSTUDIO (Nursery-NDI)"])), \
+             patch.object(device, "get_audio_mute", AsyncMock(return_value=False)), \
+             patch.object(device, "get_realtime_telemetry", AsyncMock(return_value=mock_rt)):
+            data = await device.fetch_all_data()
+            self.assertEqual(data["source_status"], "Connected")
+            self.assertTrue(data["is_decoding"])
+
+    async def test_current_source_fallback_to_realtime_vid_str_name(self):
+        """Test current_source falls back to real-time telemetry when /connectTo is empty {}. """
+        device = BirdDogDevice(host="192.168.5.61", port=8080)
+        mock_rt = {
+            "src_stat": "Initializing",
+            "vid_str_name": "AVTEAMMACSTUDIO (Foyer-NDI)",
+        }
+        with patch.object(device, "get_device_info", AsyncMock(return_value={"DeviceName": "ndi-foyer", "Model": "PLAY"})), \
+             patch.object(device, "get_current_source", AsyncMock(return_value={})), \
+             patch.object(device, "get_operation_mode", AsyncMock(return_value="Decode")), \
+             patch.object(device, "get_available_sources", AsyncMock(return_value=[])), \
+             patch.object(device, "get_audio_mute", AsyncMock(return_value=False)), \
+             patch.object(device, "get_realtime_telemetry", AsyncMock(return_value=mock_rt)):
+            data = await device.fetch_all_data()
+            self.assertEqual(data["current_source"], "AVTEAMMACSTUDIO (Foyer-NDI)")
 
 
     async def test_set_source_includes_ip_and_port_from_source_map(self):
@@ -477,6 +535,7 @@ class TestBirdDogConfigFlow(unittest.IsolatedAsyncioTestCase):
                     "port": "5962",
                 },
             )
+        await device.close()
 
     async def test_get_available_sources_caches_and_does_not_call_refresh(self):
         """Test get_available_sources caches sources and never calls /refresh in polling."""
